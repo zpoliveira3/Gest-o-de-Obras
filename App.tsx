@@ -45,7 +45,14 @@ import {
   Download,
   Database,
   Settings,
-  CalendarClock
+  CalendarClock,
+  Filter,
+  ListOrdered,
+  FileSearch,
+  Image as ImageIcon,
+  Loader2,
+  Sparkles,
+  Save
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -63,7 +70,7 @@ import {
 } from 'recharts';
 import { Project, Expense, Revenue, ExpenseCategory, Attachment, AuthState, SyncStatus } from './types';
 import { StatCard } from './components/StatCard';
-import { analyzeFinancials } from './services/geminiService';
+import { analyzeFinancials, analyzeInvoice } from './services/geminiService';
 
 const App: React.FC = () => {
   const [auth, setAuth] = useState<AuthState>(() => {
@@ -79,12 +86,26 @@ const App: React.FC = () => {
   const [sync, setSync] = useState<SyncStatus>({ lastSync: null, state: 'synced' });
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeView, setActiveView] = useState<'dashboard' | 'projects' | 'forecast' | 'ai'>('dashboard');
+  const [projectsSubView, setProjectsSubView] = useState<'cards' | 'history'>('cards');
   const [isAddingProject, setIsAddingProject] = useState(false);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [tempAttachment, setTempAttachment] = useState<Attachment | null>(null);
+  const [isReadingInvoice, setIsReadingInvoice] = useState(false);
+
+  // Estados do formulário do modal
+  const [formDescription, setFormDescription] = useState('');
+  const [formAmount, setFormAmount] = useState<string>('');
+  const [formDate, setFormDate] = useState(new Date().toISOString().split('T')[0]);
+  const [formCategory, setFormCategory] = useState<ExpenseCategory>('Material');
+  
   const [genericTransaction, setGenericTransaction] = useState<{ 
     isOpen: boolean; 
     projectId: string | null; 
-    type: 'expense' | 'revenue_paid' | 'revenue_planned' 
-  }>({ isOpen: false, projectId: null, type: 'expense' });
+    type: 'expense' | 'revenue_paid' | 'revenue_planned';
+    transId?: string | null;
+  }>({ isOpen: false, projectId: null, type: 'expense', transId: null });
+  
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
@@ -131,12 +152,97 @@ const App: React.FC = () => {
     };
   }, [projects, settings]);
 
+  const allTransactions = useMemo(() => {
+    const list: any[] = [];
+    projects.forEach(p => {
+      p.expenses.forEach(e => list.push({ ...e, type: 'Saída', color: 'rose', projectName: p.name, projectId: p.id }));
+      p.revenues.forEach(r => list.push({ ...r, type: 'Receita Paga', color: 'emerald', projectName: p.name, projectId: p.id }));
+      p.plannedRevenues?.forEach(pr => list.push({ ...pr, type: 'Receita Prevista', color: 'blue', projectName: p.name, projectId: p.id }));
+    });
+    return list
+      .filter(t => 
+        t.description.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        t.projectName.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [projects, searchTerm]);
+
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
   };
 
   const handleLogout = () => {
     setAuth({ isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin' });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64 = reader.result as string;
+        setTempAttachment({
+          name: file.name,
+          type: file.type,
+          data: base64
+        });
+
+        if (genericTransaction.type === 'expense' && !genericTransaction.transId) {
+          setIsReadingInvoice(true);
+          try {
+            const extracted = await analyzeInvoice(base64, file.type);
+            if (extracted) {
+              setFormDescription(extracted.description);
+              setFormAmount(extracted.amount.toString());
+              setFormDate(extracted.date);
+              setFormCategory(extracted.category);
+            }
+          } finally {
+            setIsReadingInvoice(false);
+          }
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleEditTransaction = (t: any) => {
+    setGenericTransaction({
+      isOpen: true,
+      projectId: t.projectId,
+      type: t.type === 'Saída' ? 'expense' : t.type === 'Receita Paga' ? 'revenue_paid' : 'revenue_planned',
+      transId: t.id
+    });
+    setFormDescription(t.description);
+    setFormAmount(t.amount.toString());
+    setFormDate(t.date);
+    if (t.category) setFormCategory(t.category);
+    if (t.attachment) setTempAttachment(t.attachment);
+    setProjectsSubView('cards'); // Fechar o extrato para mostrar o modal
+  };
+
+  const handleEditProject = (p: Project) => {
+    setEditingProjectId(p.id);
+    setIsAddingProject(true);
+  };
+
+  const deleteTransaction = (projectId: string, transId: string, type: string) => {
+    if(!confirm('Deseja excluir este lançamento?')) return;
+    setProjects(prev => prev.map(p => {
+      if(p.id !== projectId) return p;
+      if(type === 'Saída') return { ...p, expenses: p.expenses.filter(e => e.id !== transId) };
+      if(type === 'Receita Paga') return { ...p, revenues: p.revenues.filter(r => r.id !== transId) };
+      if(type === 'Receita Prevista') return { ...p, plannedRevenues: p.plannedRevenues.filter(pr => pr.id !== transId) };
+      return p;
+    }));
+  };
+
+  const openAttachment = (attachment: Attachment) => {
+    const newWindow = window.open();
+    if (newWindow) {
+      newWindow.document.write(`<iframe src="${attachment.data}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
+      newWindow.document.title = attachment.name;
+    }
   };
 
   const handleExportData = () => {
@@ -295,67 +401,180 @@ const App: React.FC = () => {
            )}
 
            {activeView === 'projects' && (
-             <div className="max-w-7xl mx-auto space-y-8">
-                <div className="flex justify-between items-center">
+             <div className="max-w-7xl mx-auto space-y-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                    <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Painel Operacional</h3>
-                   <button onClick={() => setIsAddingProject(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl flex items-center gap-2 font-black shadow-lg uppercase text-xs transition-all active:scale-95"><Plus size={18} /> Nova Obra</button>
+                   <div className="flex bg-slate-200 p-1.5 rounded-2xl gap-1">
+                      <button onClick={() => setProjectsSubView('cards')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${projectsSubView === 'cards' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                        <Building2 size={14} /> Cards das Obras
+                      </button>
+                      <button onClick={() => setProjectsSubView('history')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${projectsSubView === 'history' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                        <ListOrdered size={14} /> Extrato de Lançamentos
+                      </button>
+                   </div>
+                   <button onClick={() => { setEditingProjectId(null); setIsAddingProject(true); }} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl flex items-center gap-2 font-black shadow-lg uppercase text-xs transition-all active:scale-95"><Plus size={18} /> Nova Obra</button>
                 </div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                   {projects.length > 0 ? projects.map(p => {
-                      const costs = p.expenses.reduce((acc, e) => acc + e.amount, 0);
-                      const revPaid = p.revenues.reduce((acc, r) => acc + r.amount, 0);
-                      const revPlanned = p.plannedRevenues?.reduce((acc, r) => acc + r.amount, 0) || 0;
-                      
-                      return (
-                        <div key={p.id} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-blue-200 transition-all">
-                           <div className="p-8 flex-1">
-                              <div className="flex justify-between items-start">
-                                 <div>
-                                    <h4 className="font-black text-lg text-slate-900 truncate mb-1">{p.name}</h4>
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{p.client}</p>
-                                 </div>
-                                 <button onClick={() => {
-                                    if(confirm('Deseja excluir esta obra permanentemente?')) {
-                                       setProjects(prev => prev.filter(proj => proj.id !== p.id));
-                                    }
-                                 }} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16} /></button>
-                              </div>
-                              
-                              <div className="mt-6 p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
-                                 <div className="flex justify-between items-center">
-                                    <span className="text-[10px] font-black text-slate-400 uppercase">Contrato Global</span>
-                                    <span className="text-xs font-black text-slate-900">{formatCurrency(p.budget)}</span>
-                                 </div>
-                                 <div className="flex justify-between items-center">
-                                    <span className="text-[10px] font-black text-blue-400 uppercase">Total Previsto</span>
-                                    <span className="text-xs font-black text-blue-600">{formatCurrency(revPlanned)}</span>
-                                 </div>
-                                 <div className="flex justify-between items-center">
-                                    <span className="text-[10px] font-black text-emerald-400 uppercase">Total Pago (Real)</span>
-                                    <span className="text-xs font-black text-emerald-600">{formatCurrency(revPaid)}</span>
-                                 </div>
-                              </div>
 
-                              <div className="grid grid-cols-1 gap-3 mt-4">
-                                 <div className="p-3 bg-rose-50 text-center rounded-xl border border-rose-100 flex justify-between items-center px-4">
-                                    <p className="text-[9px] font-black text-rose-400 uppercase">Total de Saídas</p>
-                                    <p className="font-black text-rose-600 text-xs">{formatCurrency(costs)}</p>
-                                 </div>
-                              </div>
-                           </div>
-                           <div className="bg-slate-50 p-4 border-t border-slate-100 grid grid-cols-3 gap-2">
-                              <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'expense' })} className="py-2.5 bg-slate-900 text-white rounded-xl text-[8px] font-black uppercase hover:bg-slate-800 transition-colors leading-tight">Lançar<br/>Saída</button>
-                              <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_planned' })} className="py-2.5 bg-blue-600 text-white rounded-xl text-[8px] font-black uppercase hover:bg-blue-500 transition-colors leading-tight">Receita<br/>Prevista</button>
-                              <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_paid' })} className="py-2.5 bg-emerald-600 text-white rounded-xl text-[8px] font-black uppercase hover:bg-emerald-500 transition-colors leading-tight">Receita<br/>Paga</button>
-                           </div>
+                {projectsSubView === 'cards' ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in duration-300">
+                    {projects.length > 0 ? projects.map(p => {
+                        const costs = p.expenses.reduce((acc, e) => acc + e.amount, 0);
+                        const revPaid = p.revenues.reduce((acc, r) => acc + r.amount, 0);
+                        const revPlanned = p.plannedRevenues?.reduce((acc, r) => acc + r.amount, 0) || 0;
+                        
+                        return (
+                          <div key={p.id} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-blue-200 transition-all">
+                             <div className="p-8 flex-1">
+                                <div className="flex justify-between items-start">
+                                   <div>
+                                      <h4 className="font-black text-lg text-slate-900 truncate mb-1">{p.name}</h4>
+                                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{p.client}</p>
+                                   </div>
+                                   <div className="flex items-center gap-2">
+                                      <button onClick={() => handleEditProject(p)} className="p-2 text-slate-300 hover:text-blue-500 transition-colors"><Edit2 size={16} /></button>
+                                      <button onClick={() => {
+                                         if(confirm('Deseja excluir esta obra permanentemente?')) {
+                                            setProjects(prev => prev.filter(proj => proj.id !== p.id));
+                                         }
+                                      }} className="p-2 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16} /></button>
+                                   </div>
+                                </div>
+                                
+                                <div className="mt-6 p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+                                   <div className="flex justify-between items-center">
+                                      <span className="text-[10px] font-black text-slate-400 uppercase">Contrato Global</span>
+                                      <span className="text-xs font-black text-slate-900">{formatCurrency(p.budget)}</span>
+                                   </div>
+                                   <div className="flex justify-between items-center">
+                                      <span className="text-[10px] font-black text-blue-400 uppercase">Total Previsto</span>
+                                      <span className="text-xs font-black text-blue-600">{formatCurrency(revPlanned)}</span>
+                                   </div>
+                                   <div className="flex justify-between items-center">
+                                      <span className="text-[10px] font-black text-emerald-400 uppercase">Total Pago (Real)</span>
+                                      <span className="text-xs font-black text-emerald-600">{formatCurrency(revPaid)}</span>
+                                   </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 gap-3 mt-4">
+                                   <div className="p-3 bg-rose-50 text-center rounded-xl border border-rose-100 flex justify-between items-center px-4">
+                                      <p className="text-[9px] font-black text-rose-400 uppercase">Total de Saídas</p>
+                                      <p className="font-black text-rose-600 text-xs">{formatCurrency(costs)}</p>
+                                   </div>
+                                </div>
+                             </div>
+                             <div className="bg-slate-50 p-4 border-t border-slate-100 grid grid-cols-3 gap-2">
+                                <button onClick={() => { setGenericTransaction({ isOpen: true, projectId: p.id, type: 'expense', transId: null }); setTempAttachment(null); }} className="py-2.5 bg-slate-900 text-white rounded-xl text-[8px] font-black uppercase hover:bg-slate-800 transition-colors leading-tight">Lançar<br/>Saída</button>
+                                <button onClick={() => { setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_planned', transId: null }); setTempAttachment(null); }} className="py-2.5 bg-blue-600 text-white rounded-xl text-[8px] font-black uppercase hover:bg-blue-500 transition-colors leading-tight">Receita<br/>Prevista</button>
+                                <button onClick={() => { setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_paid', transId: null }); setTempAttachment(null); }} className="py-2.5 bg-emerald-600 text-white rounded-xl text-[8px] font-black uppercase hover:bg-emerald-500 transition-colors leading-tight">Receita<br/>Paga</button>
+                             </div>
+                          </div>
+                        )
+                    }) : (
+                      <div className="col-span-full py-20 text-center bg-white border-2 border-dashed border-slate-200 rounded-[2rem]">
+                          <p className="text-slate-400 font-bold uppercase text-xs">Nenhuma obra cadastrada no sistema.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+                     <div className="p-6 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-4">
+                        <div className="relative flex-1 max-w-md">
+                           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                           <input 
+                              type="text" 
+                              placeholder="Buscar por descrição ou obra..." 
+                              className="w-full pl-12 pr-4 py-3 rounded-2xl border border-slate-200 outline-none focus:border-blue-500 font-medium text-sm transition-all"
+                              value={searchTerm}
+                              onChange={(e) => setSearchTerm(e.target.value)}
+                           />
                         </div>
-                      )
-                   }) : (
-                     <div className="col-span-full py-20 text-center bg-white border-2 border-dashed border-slate-200 rounded-[2rem]">
-                        <p className="text-slate-400 font-bold uppercase text-xs">Nenhuma obra cadastrada no sistema.</p>
+                        <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase bg-white px-4 py-3 rounded-2xl border border-slate-200">
+                           <Filter size={14} /> total: {allTransactions.length} lançamentos
+                        </div>
                      </div>
-                   )}
-                </div>
+                     <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                           <thead className="bg-slate-50/50 text-[10px] font-black text-slate-500 uppercase border-b border-slate-100">
+                              <tr>
+                                 <th className="px-8 py-5">Tipo</th>
+                                 <th className="px-8 py-5">Data</th>
+                                 <th className="px-8 py-5">Obra de Origem</th>
+                                 <th className="px-8 py-5">Discriminação</th>
+                                 <th className="px-8 py-5 text-right">Valor</th>
+                                 <th className="px-8 py-5 text-center">Anexo</th>
+                                 <th className="px-8 py-5 text-center">Ações</th>
+                              </tr>
+                           </thead>
+                           <tbody className="divide-y divide-slate-50">
+                              {allTransactions.map(t => (
+                                 <tr key={t.id} className="hover:bg-slate-50/50 transition-colors group">
+                                    <td className="px-8 py-4">
+                                       <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase border ${
+                                          t.color === 'rose' ? 'bg-rose-50 text-rose-600 border-rose-100' : 
+                                          t.color === 'emerald' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-blue-50 text-blue-600 border-blue-100'
+                                       }`}>
+                                          {t.type}
+                                       </span>
+                                    </td>
+                                    <td className="px-8 py-4 text-xs font-bold text-slate-500">{new Date(t.date).toLocaleDateString('pt-BR')}</td>
+                                    <td className="px-8 py-4 text-xs font-black text-slate-900 uppercase tracking-tighter">{t.projectName}</td>
+                                    <td className="px-8 py-4">
+                                       <div className="flex flex-col">
+                                          <span className="text-xs font-bold text-slate-700">{t.description}</span>
+                                          {t.category && <span className="text-[9px] font-black text-slate-400 uppercase mt-1">C.CUSTO: {t.category}</span>}
+                                       </div>
+                                    </td>
+                                    <td className={`px-8 py-4 text-right font-black text-sm ${t.color === 'rose' ? 'text-rose-600' : t.color === 'emerald' ? 'text-emerald-600' : 'text-blue-600'}`}>
+                                       {formatCurrency(t.amount)}
+                                    </td>
+                                    <td className="px-8 py-4 text-center">
+                                       {t.attachment ? (
+                                          <button 
+                                             onClick={() => openAttachment(t.attachment)}
+                                             className="p-2.5 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-500 rounded-xl transition-all shadow-sm flex items-center justify-center mx-auto"
+                                             title="Ver Documento"
+                                          >
+                                             {t.attachment.type.includes('pdf') ? <FileSearch size={16} /> : <ImageIcon size={16} />}
+                                          </button>
+                                       ) : (
+                                          <span className="text-[9px] font-black text-slate-300 uppercase">S/ Anexo</span>
+                                       )}
+                                    </td>
+                                    <td className="px-8 py-4 text-center">
+                                       <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <button 
+                                             onClick={() => handleEditTransaction(t)}
+                                             className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all"
+                                             title="Editar"
+                                          >
+                                             <Edit2 size={16} />
+                                          </button>
+                                          <button 
+                                             onClick={() => deleteTransaction(t.projectId, t.id, t.type)}
+                                             className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                             title="Excluir"
+                                          >
+                                             <Trash2 size={16} />
+                                          </button>
+                                       </div>
+                                    </td>
+                                 </tr>
+                              ))}
+                              {allTransactions.length === 0 && (
+                                 <tr>
+                                    <td colSpan={7} className="py-20 text-center">
+                                       <div className="flex flex-col items-center gap-3">
+                                          <div className="p-4 bg-slate-50 rounded-full text-slate-300"><History size={40} /></div>
+                                          <p className="text-slate-400 font-bold uppercase text-xs">Nenhum lançamento encontrado para os filtros aplicados.</p>
+                                       </div>
+                                    </td>
+                                 </tr>
+                              )}
+                           </tbody>
+                        </table>
+                     </div>
+                  </div>
+                )}
              </div>
            )}
 
@@ -482,67 +701,151 @@ const App: React.FC = () => {
                }`}>
                   <div>
                     <h3 className="text-xl font-black uppercase tracking-widest">
-                      {genericTransaction.type === 'expense' ? 'Registro de Despesa' : 
+                      {genericTransaction.transId ? 'Editar Registro' : 
+                       genericTransaction.type === 'expense' ? 'Registro de Despesa' : 
                        genericTransaction.type === 'revenue_planned' ? 'Receita Prevista' : 'Receita Paga'}
                     </h3>
                     <p className="text-[10px] font-bold opacity-60 uppercase tracking-widest mt-1">Módulo Financeiro Central</p>
                   </div>
-                  <button onClick={() => setGenericTransaction({ isOpen: false, projectId: null, type: 'expense' })} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                  <button onClick={() => { setGenericTransaction({ isOpen: false, projectId: null, type: 'expense', transId: null }); setTempAttachment(null); }} className="p-2 hover:bg-white/10 rounded-full transition-colors">
                     <X size={24} />
                   </button>
                </div>
                <form onSubmit={(e) => {
                   e.preventDefault();
-                  const formData = new FormData(e.currentTarget);
-                  const amount = Number(formData.get('amount'));
-                  const description = formData.get('description') as string;
-                  const date = formData.get('date') as string;
+                  const amount = Number(formAmount);
+                  const isEditing = !!genericTransaction.transId;
                   
                   setProjects(prev => prev.map(p => {
                      if (p.id !== genericTransaction.projectId) return p;
                      
                      if (genericTransaction.type === 'expense') {
-                        return { ...p, expenses: [...p.expenses, { id: crypto.randomUUID(), description, amount, date, category: formData.get('category') as any }] };
+                        const newExpense = { 
+                           id: isEditing ? genericTransaction.transId! : crypto.randomUUID(), 
+                           description: formDescription, 
+                           amount, 
+                           date: formDate, 
+                           category: formCategory,
+                           attachment: tempAttachment || undefined
+                        };
+                        return { 
+                           ...p, 
+                           expenses: isEditing 
+                             ? p.expenses.map(exp => exp.id === genericTransaction.transId ? newExpense : exp)
+                             : [...p.expenses, newExpense]
+                        };
                      } else if (genericTransaction.type === 'revenue_planned') {
-                        return { ...p, plannedRevenues: [...(p.plannedRevenues || []), { id: crypto.randomUUID(), description, amount, date }] };
+                        const newPlanned = { id: isEditing ? genericTransaction.transId! : crypto.randomUUID(), description: formDescription, amount, date: formDate };
+                        return { 
+                           ...p, 
+                           plannedRevenues: isEditing 
+                             ? (p.plannedRevenues || []).map(rev => rev.id === genericTransaction.transId ? newPlanned : rev)
+                             : [...(p.plannedRevenues || []), newPlanned]
+                        };
                      } else {
-                        return { ...p, revenues: [...p.revenues, { id: crypto.randomUUID(), description, amount, date }] };
+                        const newPaid = { id: isEditing ? genericTransaction.transId! : crypto.randomUUID(), description: formDescription, amount, date: formDate };
+                        return { 
+                           ...p, 
+                           revenues: isEditing 
+                             ? p.revenues.map(rev => rev.id === genericTransaction.transId ? newPaid : rev)
+                             : [...p.revenues, newPaid]
+                        };
                      }
                   }));
-                  setGenericTransaction({ isOpen: false, projectId: null, type: 'expense' });
-               }} className="p-10 space-y-6">
+                  setGenericTransaction({ isOpen: false, projectId: null, type: 'expense', transId: null });
+                  setTempAttachment(null);
+               }} className="p-10 space-y-6 max-h-[75vh] overflow-y-auto">
+                  
+                  {genericTransaction.type === 'expense' && (
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black text-slate-400 uppercase ml-1 block">
+                          {tempAttachment ? 'Comprovante em Anexo' : 'Nota Fiscal / Comprovante (PDF ou Imagem)'}
+                       </label>
+                       <label className={`w-full flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed rounded-[1.5rem] transition-all cursor-pointer ${tempAttachment ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'} ${isReadingInvoice ? 'animate-pulse' : ''}`}>
+                          {isReadingInvoice ? (
+                            <div className="flex flex-col items-center gap-2">
+                              <Loader2 className="text-blue-600 animate-spin" size={32} />
+                              <p className="text-[10px] font-black text-blue-600 uppercase">Lendo Nota Fiscal...</p>
+                            </div>
+                          ) : (
+                            <>
+                              <div className={`p-3 rounded-2xl ${tempAttachment ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                                 {tempAttachment ? <Check size={20} /> : <Upload size={20} />}
+                              </div>
+                              <div className="text-center">
+                                 <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                                    {tempAttachment ? 'Clique para Substituir' : 'Clique para Carregar'}
+                                 </p>
+                                 <p className="text-[9px] font-medium text-slate-400 mt-1 max-w-[200px] truncate">
+                                    {tempAttachment ? tempAttachment.name : 'Formatos aceitos: PDF, JPG, PNG'}
+                                 </p>
+                              </div>
+                            </>
+                          )}
+                          <input type="file" className="hidden" accept=".pdf,image/*" onChange={handleFileChange} />
+                       </label>
+                    </div>
+                  )}
+
                   <div className="space-y-1">
-                     <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Descrição do Lançamento</label>
-                     <input required name="description" placeholder={genericTransaction.type === 'revenue_planned' ? "Ex: Medição Prevista Outubro" : "Ex: NF Material de Alvenaria"} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
+                     <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Descrição Editável</label>
+                     <input 
+                      required 
+                      value={formDescription} 
+                      onChange={(e) => setFormDescription(e.target.value)} 
+                      placeholder="Ex: NF Material de Alvenaria" 
+                      className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" 
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Valor R$</label>
-                        <input required name="amount" type="number" step="0.01" placeholder="0,00" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none focus:border-blue-500" />
+                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Valor R$ (Corrigível)</label>
+                        <input 
+                          required 
+                          type="number" 
+                          step="0.01" 
+                          value={formAmount} 
+                          onChange={(e) => setFormAmount(e.target.value)} 
+                          placeholder="0,00" 
+                          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none focus:border-blue-500" 
+                        />
                      </div>
                      <div className="space-y-1">
                         <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Data</label>
-                        <input required name="date" type="date" defaultValue={new Date().toISOString().split('T')[0]} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
+                        <input 
+                          required 
+                          type="date" 
+                          value={formDate} 
+                          onChange={(e) => setFormDate(e.target.value)} 
+                          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" 
+                        />
                      </div>
                   </div>
+
                   {genericTransaction.type === 'expense' && (
-                     <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Centro de Custo</label>
-                        <select name="category" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 appearance-none">
-                           <option value="Material">Material</option>
-                           <option value="Mão de Obra">Mão de Obra</option>
-                           <option value="Comissão">Comissão / Provisão</option>
-                           <option value="Equipamentos">Aluguel de Equipamentos</option>
-                           <option value="Serviços Terceiros">Serviços Terceiros</option>
-                           <option value="Outros">Outros Custos</option>
-                        </select>
-                     </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Centro de Custo</label>
+                      <select 
+                        value={formCategory} 
+                        onChange={(e) => setFormCategory(e.target.value as ExpenseCategory)} 
+                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 appearance-none"
+                      >
+                        <option value="Material">Material</option>
+                        <option value="Mão de Obra">Mão de Obra</option>
+                        <option value="Comissão">Comissão / Provisão</option>
+                        <option value="Equipamentos">Aluguel de Equipamentos</option>
+                        <option value="Serviços Terceiros">Serviços Terceiros</option>
+                        <option value="Outros">Outros Custos</option>
+                      </select>
+                    </div>
                   )}
-                  <button type="submit" className={`w-full py-5 text-white font-black rounded-2xl uppercase shadow-xl transition-all active:scale-[0.98] tracking-widest text-xs ${
+
+                  <button type="submit" className={`w-full py-5 text-white font-black rounded-2xl uppercase shadow-xl transition-all active:scale-[0.98] tracking-widest text-xs flex items-center justify-center gap-2 ${
                     genericTransaction.type === 'expense' ? 'bg-slate-900 hover:bg-slate-800' : 
                     genericTransaction.type === 'revenue_planned' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-emerald-600 hover:bg-emerald-500'
                   }`}>
-                    Confirmar Registro
+                    {genericTransaction.transId ? <Save size={16} /> : <Check size={16} />} 
+                    {genericTransaction.transId ? 'Salvar Correções' : 'Confirmar Registro'}
                   </button>
                </form>
             </div>
@@ -553,38 +856,50 @@ const App: React.FC = () => {
          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-6">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
                <div className="p-8 bg-blue-600 text-white flex justify-between items-center">
-                  <h3 className="text-xl font-black uppercase tracking-tighter">Abertura de Obra</h3>
-                  <button onClick={() => setIsAddingProject(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24} /></button>
+                  <h3 className="text-xl font-black uppercase tracking-tighter">
+                     {editingProjectId ? 'Editar Dados da Obra' : 'Abertura de Obra'}
+                  </h3>
+                  <button onClick={() => { setIsAddingProject(false); setEditingProjectId(null); }} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24} /></button>
                </div>
                <form onSubmit={(e) => {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
-                  setProjects([...projects, { 
-                     id: crypto.randomUUID(), 
-                     name: formData.get('name') as string, 
-                     client: formData.get('client') as string, 
-                     budget: Number(formData.get('budget')), 
-                     startDate: new Date().toISOString(), 
-                     status: 'Em Execução', 
-                     expenses: [], 
-                     revenues: [],
-                     plannedRevenues: []
-                  }]);
+                  const name = formData.get('name') as string;
+                  const client = formData.get('client') as string;
+                  const budget = Number(formData.get('budget'));
+
+                  if (editingProjectId) {
+                     setProjects(prev => prev.map(p => p.id === editingProjectId ? { ...p, name, client, budget } : p));
+                  } else {
+                     setProjects([...projects, { 
+                        id: crypto.randomUUID(), 
+                        name, client, budget,
+                        startDate: new Date().toISOString(), 
+                        status: 'Em Execução', 
+                        expenses: [], 
+                        revenues: [],
+                        plannedRevenues: []
+                     }]);
+                  }
                   setIsAddingProject(false);
+                  setEditingProjectId(null);
                }} className="p-10 space-y-5 overflow-y-auto max-h-[80vh]">
                   <div className="space-y-1">
                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Identificação da Obra</label>
-                     <input required name="name" placeholder="Ex: Reforma Colégio Municipal" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
+                     <input required name="name" defaultValue={editingProjectId ? projects.find(p => p.id === editingProjectId)?.name : ''} placeholder="Ex: Reforma Colégio Municipal" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
                   </div>
                   <div className="space-y-1">
                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Órgão / Cliente</label>
-                     <input required name="client" placeholder="Ex: Secretaria de Obras" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
+                     <input required name="client" defaultValue={editingProjectId ? projects.find(p => p.id === editingProjectId)?.client : ''} placeholder="Ex: Secretaria de Obras" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Valor Global do Contrato R$</label>
-                    <input required name="budget" type="number" step="0.01" placeholder="0,00" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none focus:border-blue-500" />
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Valor Global do Contrato R$ (Revisável)</label>
+                    <input required name="budget" type="number" step="0.01" defaultValue={editingProjectId ? projects.find(p => p.id === editingProjectId)?.budget : ''} placeholder="0,00" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none focus:border-blue-500" />
                   </div>
-                  <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase shadow-xl hover:bg-blue-500 transition-all tracking-widest text-xs">Cadastrar no Sistema</button>
+                  <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase shadow-xl hover:bg-blue-500 transition-all tracking-widest text-xs flex items-center justify-center gap-2">
+                     {editingProjectId ? <Save size={16} /> : <Check size={16} />}
+                     {editingProjectId ? 'Salvar Alterações' : 'Cadastrar no Sistema'}
+                  </button>
                </form>
             </div>
          </div>

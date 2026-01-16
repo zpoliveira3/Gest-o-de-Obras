@@ -1,16 +1,14 @@
 
-import { GoogleGenAI } from "@google/genai";
-import { Project } from "../types";
+import { GoogleGenAI, Type } from "@google/genai";
+import { Project, ExpenseCategory } from "../types";
+
+const apiKey = (process.env as any).API_KEY;
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 export async function analyzeFinancials(projects: Project[]): Promise<string> {
-  // Acessa a chave através de uma conversão de tipo para evitar erro no build do TypeScript
-  const apiKey = (process.env as any).API_KEY;
-  
-  if (!apiKey) {
-    return "Atenção: A variável API_KEY não foi encontrada nas configurações da Vercel. A análise inteligente está desativada.";
+  if (!ai) {
+    return "Atenção: A variável API_KEY não foi encontrada. A análise inteligente está desativada.";
   }
-
-  const ai = new GoogleGenAI({ apiKey });
 
   const dataSummary = projects.map(p => ({
     nome: p.name,
@@ -37,16 +35,61 @@ export async function analyzeFinancials(projects: Project[]): Promise<string> {
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-3-flash-preview",
       contents: prompt,
-      config: {
-        temperature: 0.7,
-      }
     });
     
     return response.text || "Não foi possível gerar a análise no momento.";
   } catch (error) {
     console.error("Erro na análise Gemini:", error);
-    return "Erro ao conectar com a inteligência artificial. Verifique se a API_KEY está correta e se o projeto possui faturamento ativo no Google Cloud.";
+    return "Erro ao conectar com a inteligência artificial.";
+  }
+}
+
+export async function analyzeInvoice(base64Data: string, mimeType: string): Promise<{
+  description: string;
+  amount: number;
+  date: string;
+  category: ExpenseCategory;
+} | null> {
+  if (!ai) return null;
+
+  // Remover o prefixo data:image/...;base64, se existir
+  const cleanBase64 = base64Data.split(',')[1] || base64Data;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: cleanBase64,
+          },
+        },
+        {
+          text: "Extraia as informações desta Nota Fiscal ou recibo de obra. Retorne apenas um objeto JSON com: 'description' (resumo do que foi comprado), 'amount' (valor total numérico), 'date' (data no formato YYYY-MM-DD) e 'category' (escolha a mais adequada entre: 'Material', 'Mão de Obra', 'Equipamentos', 'Serviços Terceiros', 'Outros')."
+        }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            description: { type: Type.STRING },
+            amount: { type: Type.NUMBER },
+            date: { type: Type.STRING },
+            category: { type: Type.STRING }
+          },
+          required: ["description", "amount", "date", "category"]
+        }
+      }
+    });
+
+    const result = JSON.parse(response.text || "{}");
+    return result;
+  } catch (error) {
+    console.error("Erro ao analisar nota fiscal:", error);
+    return null;
   }
 }
