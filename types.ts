@@ -29,6 +29,7 @@ export interface Project {
   name: string;
   client: string;
   budget: number;
+  plannedRevenue: number; // Novo campo para receita prevista
   startDate: string;
   status: 'Em Planejamento' | 'Em Execução' | 'Concluído' | 'Pausado';
   expenses: Expense[];

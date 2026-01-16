@@ -70,7 +70,6 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : { isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin' };
   });
 
-  // Configurações de porcentagem (Imposto e Comissão)
   const [settings, setSettings] = useState(() => {
     const saved = localStorage.getItem(`gestao_obras_settings_${auth.companyKey}`);
     return saved ? JSON.parse(saved) : { taxRate: 6, commissionRate: 15 };
@@ -111,18 +110,18 @@ const App: React.FC = () => {
 
   const summary = useMemo(() => {
     const totalBudget = projects.reduce((acc, p) => acc + p.budget, 0);
+    const totalPlanned = projects.reduce((acc, p) => acc + (p.plannedRevenue || 0), 0);
     const totalExpenses = projects.reduce((acc, p) => acc + p.expenses.reduce((sum, e) => sum + e.amount, 0), 0);
     const totalRevenue = projects.reduce((acc, p) => acc + p.revenues.reduce((sum, r) => sum + r.amount, 0), 0);
     const netProfit = totalRevenue - totalExpenses;
     const outstandingReceivables = totalBudget - totalRevenue;
     
-    // Cálculos baseados nas configurações editáveis pelo usuário
     const futureTaxes = Math.max(0, outstandingReceivables * (settings.taxRate / 100)); 
     const futureCommissions = Math.max(0, (outstandingReceivables - futureTaxes) * (settings.commissionRate / 100)); 
     const forecastProfit = totalBudget - totalExpenses - futureTaxes - futureCommissions;
 
     return { 
-      totalBudget, totalExpenses, totalRevenue, 
+      totalBudget, totalPlanned, totalExpenses, totalRevenue, 
       netProfit, forecastProfit, outstandingReceivables, futureCommissions, futureTaxes 
     };
   }, [projects, settings]);
@@ -268,10 +267,10 @@ const App: React.FC = () => {
            {activeView === 'dashboard' && (
              <div className="max-w-7xl mx-auto space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                   <StatCard title="Total Obras" value={formatCurrency(summary.totalBudget)} icon={<DollarSign size={20}/>} />
+                   <StatCard title="Total Contratos" value={formatCurrency(summary.totalBudget)} icon={<DollarSign size={20}/>} />
+                   <StatCard title="Total Previsto" value={formatCurrency(summary.totalPlanned)} icon={<TrendingUp size={20}/>} colorClass="bg-white border-l-4 border-blue-400" />
                    <StatCard title="Gastos Totais" value={formatCurrency(summary.totalExpenses)} icon={<Wallet size={20}/>} colorClass="bg-white border-l-4 border-rose-500" />
-                   <StatCard title="Total Recebido" value={formatCurrency(summary.totalRevenue)} icon={<TrendingUp size={20}/>} colorClass="bg-white border-l-4 border-emerald-500" />
-                   <StatCard title="Saldo de Caixa" value={formatCurrency(summary.netProfit)} icon={<Scale size={20}/>} />
+                   <StatCard title="Saldo em Caixa" value={formatCurrency(summary.netProfit)} icon={<Scale size={20}/>} />
                 </div>
                 <div className="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
                    <h3 className="font-black text-slate-800 uppercase text-xs mb-6 tracking-widest">Contratos por Projeto</h3>
@@ -300,18 +299,36 @@ const App: React.FC = () => {
                    {projects.length > 0 ? projects.map(p => {
                       const costs = p.expenses.reduce((acc, e) => acc + e.amount, 0);
                       const rev = p.revenues.reduce((acc, r) => acc + r.amount, 0);
+                      const planned = p.plannedRevenue || 0;
                       return (
                         <div key={p.id} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-blue-200 transition-all">
                            <div className="p-8 flex-1">
-                              <h4 className="font-black text-lg text-slate-900 truncate mb-1">{p.name}</h4>
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{p.client}</p>
-                              <div className="mt-6 p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center">
-                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Contrato Global</span>
-                                 <span className="text-sm font-black text-slate-900">{formatCurrency(p.budget)}</span>
+                              <div className="flex justify-between items-start">
+                                 <div>
+                                    <h4 className="font-black text-lg text-slate-900 truncate mb-1">{p.name}</h4>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{p.client}</p>
+                                 </div>
+                                 <button onClick={() => {
+                                    if(confirm('Deseja excluir esta obra permanentemente?')) {
+                                       setProjects(prev => prev.filter(proj => proj.id !== p.id));
+                                    }
+                                 }} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16} /></button>
                               </div>
+                              
+                              <div className="mt-6 p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+                                 <div className="flex justify-between items-center">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase">Contrato Global</span>
+                                    <span className="text-xs font-black text-slate-900">{formatCurrency(p.budget)}</span>
+                                 </div>
+                                 <div className="flex justify-between items-center">
+                                    <span className="text-[10px] font-black text-blue-400 uppercase">Receita Prevista</span>
+                                    <span className="text-xs font-black text-blue-600">{formatCurrency(planned)}</span>
+                                 </div>
+                              </div>
+
                               <div className="grid grid-cols-2 gap-3 mt-4">
                                  <div className="p-3 bg-rose-50 text-center rounded-xl border border-rose-100"><p className="text-[9px] font-black text-rose-400 uppercase">Saídas</p><p className="font-black text-rose-600 text-xs">{formatCurrency(costs)}</p></div>
-                                 <div className="p-3 bg-emerald-50 text-center rounded-xl border border-emerald-100"><p className="text-[9px] font-black text-emerald-400 uppercase">Entradas</p><p className="font-black text-emerald-600 text-xs">{formatCurrency(rev)}</p></div>
+                                 <div className="p-3 bg-emerald-50 text-center rounded-xl border border-emerald-100"><p className="text-[9px] font-black text-emerald-400 uppercase">Realizado</p><p className="font-black text-emerald-600 text-xs">{formatCurrency(rev)}</p></div>
                               </div>
                            </div>
                            <div className="bg-slate-50 p-4 border-t border-slate-100 grid grid-cols-2 gap-2">
@@ -331,7 +348,6 @@ const App: React.FC = () => {
 
            {activeView === 'forecast' && (
               <div className="max-w-7xl mx-auto space-y-8">
-                 {/* Seção de Configuração de Porcentagens Editáveis */}
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-6 group hover:border-blue-200 transition-all">
                        <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl group-hover:bg-rose-100 transition-colors"><Calculator size={24} /></div>
@@ -447,9 +463,14 @@ const App: React.FC = () => {
       {genericTransaction.isOpen && (
          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-6">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-               <div className={`p-8 text-white ${genericTransaction.type === 'expense' ? 'bg-slate-900' : 'bg-blue-600'}`}>
-                  <h3 className="text-xl font-black uppercase tracking-widest">{genericTransaction.type === 'expense' ? 'Registro de Despesa' : 'Lançamento de Receita'}</h3>
-                  <p className="text-[10px] font-bold opacity-60 uppercase tracking-widest mt-1">Módulo Financeiro Central</p>
+               <div className={`p-8 text-white flex justify-between items-center ${genericTransaction.type === 'expense' ? 'bg-slate-900' : 'bg-blue-600'}`}>
+                  <div>
+                    <h3 className="text-xl font-black uppercase tracking-widest">{genericTransaction.type === 'expense' ? 'Registro de Despesa' : 'Lançamento de Receita'}</h3>
+                    <p className="text-[10px] font-bold opacity-60 uppercase tracking-widest mt-1">Módulo Financeiro Central</p>
+                  </div>
+                  <button onClick={() => setGenericTransaction({ isOpen: false, projectId: null, type: 'expense' })} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                    <X size={24} />
+                  </button>
                </div>
                <form onSubmit={(e) => {
                   e.preventDefault();
@@ -510,9 +531,19 @@ const App: React.FC = () => {
                <form onSubmit={(e) => {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
-                  setProjects([...projects, { id: crypto.randomUUID(), name: formData.get('name') as string, client: formData.get('client') as string, budget: Number(formData.get('budget')), startDate: new Date().toISOString(), status: 'Em Execução', expenses: [], revenues: [] }]);
+                  setProjects([...projects, { 
+                     id: crypto.randomUUID(), 
+                     name: formData.get('name') as string, 
+                     client: formData.get('client') as string, 
+                     budget: Number(formData.get('budget')), 
+                     plannedRevenue: Number(formData.get('plannedRevenue') || 0),
+                     startDate: new Date().toISOString(), 
+                     status: 'Em Execução', 
+                     expenses: [], 
+                     revenues: [] 
+                  }]);
                   setIsAddingProject(false);
-               }} className="p-10 space-y-6">
+               }} className="p-10 space-y-5 overflow-y-auto max-h-[80vh]">
                   <div className="space-y-1">
                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Identificação da Obra</label>
                      <input required name="name" placeholder="Ex: Reforma Colégio Municipal" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
@@ -521,9 +552,15 @@ const App: React.FC = () => {
                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Órgão / Cliente</label>
                      <input required name="client" placeholder="Ex: Secretaria de Obras" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
                   </div>
-                  <div className="space-y-1">
-                     <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Valor do Contrato R$</label>
-                     <input required name="budget" type="number" step="0.01" placeholder="0,00" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none focus:border-blue-500 text-xl" />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Valor do Contrato R$</label>
+                      <input required name="budget" type="number" step="0.01" placeholder="0,00" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none focus:border-blue-500" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-blue-400 uppercase ml-1">Receita Prevista R$</label>
+                      <input name="plannedRevenue" type="number" step="0.01" placeholder="0,00" className="w-full p-4 bg-blue-50/50 border border-blue-100 rounded-xl font-black outline-none focus:border-blue-500" title="Quanto você planeja receber nesta obra (ex: medição atual)" />
+                    </div>
                   </div>
                   <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase shadow-xl hover:bg-blue-500 transition-all tracking-widest text-xs">Cadastrar no Sistema</button>
                </form>
