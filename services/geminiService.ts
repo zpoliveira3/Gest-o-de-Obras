@@ -1,14 +1,13 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
-import { Project } from "../types";
-
-// Inicialização segura com a chave de ambiente
-const ai = new GoogleGenAI({ apiKey: (process.env as any).API_KEY });
+import { GoogleGenAI } from "@google/genai";
+import { Project } from "../types.ts";
 
 /**
  * Analisa a saúde financeira geral dos projetos
  */
 export async function analyzeFinancials(projects: Project[]): Promise<string> {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
   const dataSummary = projects.map(p => ({
     nome: p.name,
     valor_obra: p.budget,
@@ -44,12 +43,12 @@ export async function analyzeFinancials(projects: Project[]): Promise<string> {
  * Extrai dados financeiros de PDFs ou Imagens de medições/contratos
  */
 export async function analyzeProjectDocument(base64Data: string, mimeType: string): Promise<Partial<Project> | null> {
-  // Limpa o prefixo data:mime/type;base64, se existir
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview", // Modelo Pro para extração de dados complexos em tabelas
+      model: "gemini-3-pro-preview",
       contents: {
         parts: [
           {
@@ -90,7 +89,6 @@ export async function analyzeProjectDocument(base64Data: string, mimeType: strin
     const text = response.text;
     if (!text) return null;
 
-    // Remove possíveis blocos de código Markdown que o modelo possa ter inserido
     const jsonString = text.replace(/```json|```/gi, "").trim();
     return JSON.parse(jsonString);
   } catch (error) {

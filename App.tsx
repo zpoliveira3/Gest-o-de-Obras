@@ -22,21 +22,21 @@ import {
   Building2,
   ArrowRight
 } from 'lucide-react';
-import { Project, Revenue, ExpenseCategory, AuthState, SyncStatus } from './types';
-import { StatCard } from './components/StatCard';
-import { analyzeFinancials, analyzeProjectDocument } from './services/geminiService';
+import { Project, Revenue, ExpenseCategory, AuthState } from './types.ts';
+import { StatCard } from './components/StatCard.tsx';
+import { analyzeFinancials, analyzeProjectDocument } from './services/geminiService.ts';
 
 const App: React.FC = () => {
   const [auth, setAuth] = useState<AuthState>(() => {
-    const saved = localStorage.getItem('gestao_obras_auth_v1');
-    return saved ? JSON.parse(saved) : { isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin' };
+    try {
+      const saved = localStorage.getItem('gestao_obras_auth_v1');
+      return saved ? JSON.parse(saved) : { isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin' };
+    } catch {
+      return { isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin' };
+    }
   });
 
-  const [settings, setSettings] = useState(() => {
-    const saved = localStorage.getItem(`gestao_obras_settings_${auth.companyKey}`);
-    return saved ? JSON.parse(saved) : { taxRate: 6, commissionRate: 15 };
-  });
-
+  const [settings] = useState(() => ({ taxRate: 6, commissionRate: 15 }));
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeView, setActiveView] = useState<'dashboard' | 'projects' | 'forecast' | 'ai'>('dashboard');
   const [isAddingProject, setIsAddingProject] = useState(false);
@@ -44,11 +44,9 @@ const App: React.FC = () => {
   const [docStatus, setDocStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Estados do Form de Login
   const [loginCompany, setLoginCompany] = useState('');
   const [loginKey, setLoginKey] = useState('');
 
-  // Estados do Form de Projeto e Dados Extraídos pela IA
   const [projName, setProjName] = useState('');
   const [projClient, setProjClient] = useState('');
   const [projBudget, setProjBudget] = useState('');
@@ -74,16 +72,21 @@ const App: React.FC = () => {
       localStorage.setItem('gestao_obras_auth_v1', JSON.stringify(auth));
       const storageKey = `gestao_obras_data_${auth.companyKey}`;
       const saved = localStorage.getItem(storageKey);
-      if (saved) setProjects(JSON.parse(saved));
+      if (saved) {
+        try {
+          setProjects(JSON.parse(saved));
+        } catch (e) {
+          console.error("Erro ao carregar projetos:", e);
+        }
+      }
     }
   }, [auth]);
 
   useEffect(() => {
-    if (auth.isLoggedIn) {
+    if (auth.isLoggedIn && auth.companyKey) {
       localStorage.setItem(`gestao_obras_data_${auth.companyKey}`, JSON.stringify(projects));
-      localStorage.setItem(`gestao_obras_settings_${auth.companyKey}`, JSON.stringify(settings));
     }
-  }, [projects, settings, auth.companyKey, auth.isLoggedIn]);
+  }, [projects, auth]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,7 +94,7 @@ const App: React.FC = () => {
       setAuth({
         isLoggedIn: true,
         companyName: loginCompany,
-        companyKey: loginKey.toLowerCase().trim(),
+        companyKey: loginKey.toLowerCase().trim().replace(/\s/g, '_'),
         userRole: 'admin'
       });
     }
@@ -103,6 +106,7 @@ const App: React.FC = () => {
       setAuth({ isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin' });
       setProjects([]);
       setAiAnalysis('');
+      setActiveView('dashboard');
     }
   };
 
@@ -144,15 +148,10 @@ const App: React.FC = () => {
           setDocStatus('error');
         }
       } catch (err) {
-        console.error("Erro no processamento:", err);
         setDocStatus('error');
       } finally {
         setIsProcessingDoc(false);
       }
-    };
-    reader.onerror = () => {
-      setDocStatus('error');
-      setIsProcessingDoc(false);
     };
     reader.readAsDataURL(file);
   };
@@ -188,55 +187,33 @@ const App: React.FC = () => {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-slate-900 p-6 relative overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 blur-[120px] rounded-full"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-600/20 blur-[120px] rounded-full"></div>
-        
         <div className="w-full max-w-md z-10">
           <div className="text-center mb-10">
-            <div className="inline-flex p-4 bg-blue-600 rounded-2xl shadow-xl shadow-blue-500/20 mb-6">
+            <div className="inline-flex p-4 bg-blue-600 rounded-2xl shadow-xl mb-6">
               <ShieldCheck size={40} className="text-white" />
             </div>
             <h1 className="text-3xl font-black text-white uppercase tracking-tighter">Gestão de Obras</h1>
             <p className="text-slate-400 font-medium mt-2">ERP Profissional para Empreiteiras</p>
           </div>
-
           <form onSubmit={handleLogin} className="bg-white/5 backdrop-blur-xl border border-white/10 p-8 rounded-[2.5rem] shadow-2xl space-y-6">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Nome da Empresa</label>
               <div className="relative">
                 <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                <input 
-                  required 
-                  value={loginCompany} 
-                  onChange={e => setLoginCompany(e.target.value)}
-                  placeholder="Sua Construtora LTDA"
-                  className="w-full pl-12 pr-4 py-4 bg-white/5 border border-white/10 rounded-2xl text-white font-bold outline-none focus:border-blue-500 transition-all placeholder:text-slate-600"
-                />
+                <input required value={loginCompany} onChange={e => setLoginCompany(e.target.value)} placeholder="Sua Construtora LTDA" className="w-full pl-12 pr-4 py-4 bg-white/5 border border-white/10 rounded-2xl text-white font-bold outline-none focus:border-blue-500 transition-all placeholder:text-slate-600" />
               </div>
             </div>
-
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Chave de Acesso</label>
               <div className="relative">
                 <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                <input 
-                  required 
-                  type="password"
-                  value={loginKey} 
-                  onChange={e => setLoginKey(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-12 pr-4 py-4 bg-white/5 border border-white/10 rounded-2xl text-white font-bold outline-none focus:border-blue-500 transition-all placeholder:text-slate-600"
-                />
+                <input required type="password" value={loginKey} onChange={e => setLoginKey(e.target.value)} placeholder="••••••••" className="w-full pl-12 pr-4 py-4 bg-white/5 border border-white/10 rounded-2xl text-white font-bold outline-none focus:border-blue-500 transition-all placeholder:text-slate-600" />
               </div>
             </div>
-
-            <button type="submit" className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-2xl uppercase shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-3 group">
+            <button type="submit" className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-2xl uppercase shadow-lg transition-all flex items-center justify-center gap-3 group">
               Acessar Painel <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
             </button>
           </form>
-
-          <p className="text-center text-slate-500 text-[10px] font-bold uppercase mt-8 tracking-widest">
-            Sistema Protegido • Engenharia Civil Pro
-          </p>
         </div>
       </div>
     );
@@ -264,9 +241,9 @@ const App: React.FC = () => {
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0 text-[10px] font-black tracking-widest text-slate-400 uppercase">
+        <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0 text-[10px] font-black text-slate-400 uppercase tracking-widest">
            <h2>{activeView} / {auth.companyName}</h2>
-           <div className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-lg border border-emerald-100">Status: Online</div>
+           <div className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-lg border border-emerald-100 uppercase">Status: Online</div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-8">
@@ -285,16 +262,14 @@ const App: React.FC = () => {
                    <h3 className="text-2xl font-black uppercase">Gestão Operacional</h3>
                    <button onClick={() => setIsAddingProject(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl flex items-center gap-2 font-black shadow-lg uppercase text-xs"><Plus size={18} /> Nova Obra</button>
                 </div>
-
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   {projects.length === 0 ? (
                     <div className="col-span-full py-20 text-center bg-white rounded-[2rem] border border-dashed border-slate-300">
                       <HardHat size={48} className="mx-auto text-slate-300 mb-4" />
-                      <p className="text-slate-500 font-bold uppercase text-xs tracking-widest">Nenhuma obra cadastrada ainda.</p>
-                      <button onClick={() => setIsAddingProject(true)} className="mt-4 text-blue-600 font-black text-xs uppercase hover:underline">Começar Primeiro Projeto</button>
+                      <p className="text-slate-500 font-bold uppercase text-xs tracking-widest">Nenhuma obra cadastrada.</p>
                     </div>
                   ) : projects.map(p => (
-                    <div key={p.id} className="bg-white rounded-[2rem] border border-slate-200 p-8 shadow-sm hover:border-blue-200 transition-all">
+                    <div key={p.id} className="bg-white rounded-[2rem] border border-slate-200 p-8 shadow-sm">
                        <div className="flex justify-between items-start mb-1">
                          <h4 className="font-black text-lg truncate uppercase">{p.name}</h4>
                          <button onClick={() => { if(confirm('Excluir obra?')) setProjects(prev => prev.filter(x => x.id !== p.id)) }} className="text-slate-300 hover:text-rose-500"><Trash2 size={16} /></button>
@@ -305,47 +280,11 @@ const App: React.FC = () => {
                           <div className="flex justify-between text-[10px] font-black uppercase text-emerald-600"><span>Custo Real</span><span>{formatCurrency(p.expenses.reduce((s,e)=>s+e.amount,0))}</span></div>
                        </div>
                        <div className="mt-6 grid grid-cols-2 gap-2">
-                          <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'expense' })} className="py-2 bg-slate-900 text-white rounded-xl text-[8px] font-black uppercase tracking-widest">Lançar Saída</button>
-                          <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_paid' })} className="py-2 bg-emerald-600 text-white rounded-xl text-[8px] font-black uppercase tracking-widest">Lançar Medição</button>
+                          <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'expense' })} className="py-2 bg-slate-900 text-white rounded-xl text-[8px] font-black uppercase">Lançar Saída</button>
+                          <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_paid' })} className="py-2 bg-emerald-600 text-white rounded-xl text-[8px] font-black uppercase">Lançar Medição</button>
                        </div>
                     </div>
                   ))}
-                </div>
-             </div>
-           )}
-
-           {activeView === 'forecast' && (
-             <div className="max-w-7xl mx-auto">
-                <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
-                  <div className="p-8 bg-slate-900 text-white"><h3 className="text-xl font-black uppercase">Projeção de Custos e Impostos</h3></div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-[10px]">
-                       <thead className="bg-slate-50 font-black uppercase border-b text-slate-400">
-                          <tr>
-                             <th className="px-6 py-4">Obra</th>
-                             <th className="px-6 py-4 text-right">Contrato</th>
-                             <th className="px-6 py-4 text-right">Custo da Obra</th>
-                             <th className="px-6 py-4 text-right">Imposto Pago</th>
-                             <th className="px-6 py-4 text-right">Lucro Previsto</th>
-                          </tr>
-                       </thead>
-                       <tbody className="divide-y divide-slate-100">
-                          {projects.map(p => {
-                             const tax = (p.revenues.reduce((s,r)=>s+r.amount,0)) * (settings.taxRate/100);
-                             const costs = p.expenses.reduce((s,e)=>s+e.amount,0);
-                             return (
-                                <tr key={p.id} className="hover:bg-slate-50 font-medium">
-                                   <td className="px-6 py-4 font-black uppercase">{p.name}</td>
-                                   <td className="px-6 py-4 text-right">{formatCurrency(p.budget)}</td>
-                                   <td className="px-6 py-4 text-right text-rose-600">{formatCurrency(costs)}</td>
-                                   <td className="px-6 py-4 text-right text-orange-600">{formatCurrency(tax)}</td>
-                                   <td className="px-6 py-4 text-right font-black text-indigo-600">{formatCurrency(p.budget - costs - (p.budget * (settings.taxRate/100)))}</td>
-                                </tr>
-                             )
-                          })}
-                       </tbody>
-                    </table>
-                  </div>
                 </div>
              </div>
            )}
@@ -354,7 +293,7 @@ const App: React.FC = () => {
              <div className="max-w-4xl mx-auto p-12 bg-white rounded-[3rem] border border-slate-200 shadow-xl">
                 <h3 className="text-2xl font-black uppercase mb-6 flex items-center gap-3"><BrainCircuit className="text-blue-600" /> Auditoria IA</h3>
                 <div className="whitespace-pre-wrap leading-relaxed text-slate-700 font-medium">
-                  {isAnalyzing ? <div className="animate-pulse flex items-center gap-2"><Loader2 className="animate-spin" /> Analisando medições...</div> : aiAnalysis}
+                  {isAnalyzing ? <div className="animate-pulse flex items-center gap-2"><Loader2 className="animate-spin" /> Analisando...</div> : aiAnalysis}
                 </div>
              </div>
            )}
@@ -366,52 +305,37 @@ const App: React.FC = () => {
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-6">
            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
               <div className="p-8 bg-blue-600 text-white flex justify-between items-center shrink-0">
-                 <h3 className="text-xl font-black uppercase tracking-widest">Cadastrar Nova Obra</h3>
+                 <h3 className="text-xl font-black uppercase tracking-widest">Nova Obra</h3>
                  <button onClick={resetProjectFields} className="p-2 hover:bg-white/10 rounded-full"><X size={24} /></button>
               </div>
               <div className="p-10 space-y-8 overflow-y-auto flex-1">
-                 <div className="bg-slate-50 p-8 rounded-[2rem] border-2 border-dashed border-slate-200 relative group text-center cursor-pointer hover:border-blue-500 transition-colors">
+                 <div className="bg-slate-50 p-8 rounded-[2rem] border-2 border-dashed border-slate-200 relative group text-center cursor-pointer">
                     {isProcessingDoc ? (
                       <div className="flex flex-col items-center gap-4 py-4">
                          <Loader2 className="animate-spin text-blue-600" size={40} />
-                         <p className="text-xs font-black uppercase text-blue-600 animate-pulse tracking-widest">Extraindo dados do documento...</p>
+                         <p className="text-xs font-black uppercase text-blue-600 tracking-widest">IA Analisando...</p>
                       </div>
                     ) : (
                       <>
                         <input type="file" accept="application/pdf,image/*" onChange={handleProjectFileUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                         <div className="flex flex-col items-center gap-3">
-                           {docStatus === 'success' ? <FileCheck2 size={48} className="text-emerald-500" /> : <FileUp size={48} className={`${docStatus === 'error' ? 'text-rose-500' : 'text-slate-300'} group-hover:text-blue-500`} />}
-                           <p className="text-xs font-black uppercase text-slate-400">
-                             {docStatus === 'success' ? 'Dados Detectados com Sucesso!' : docStatus === 'error' ? 'Erro na leitura. Tente outro arquivo.' : 'Importar Medição ou Contrato (PDF/IMG)'}
-                           </p>
+                           {docStatus === 'success' ? <FileCheck2 size={48} className="text-emerald-500" /> : <FileUp size={48} className={`${docStatus === 'error' ? 'text-rose-500' : 'text-slate-300'}`} />}
+                           <p className="text-xs font-black uppercase text-slate-400">Arraste Medição/Contrato (PDF/IMG)</p>
                         </div>
                       </>
                     )}
                  </div>
-
                  <form onSubmit={handleCreateProject} className="space-y-6">
                     <div className="grid grid-cols-2 gap-6">
-                       <div className="space-y-1">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">Nome do Projeto</label>
-                          <input required value={projName} onChange={e => setProjName(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
-                       </div>
-                       <div className="space-y-1">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">Cliente</label>
-                          <input required value={projClient} onChange={e => setProjClient(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
-                       </div>
+                       <input required placeholder="Nome do Projeto" value={projName} onChange={e => setProjName(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold" />
+                       <input required placeholder="Cliente" value={projClient} onChange={e => setProjClient(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold" />
                     </div>
                     <div className="grid grid-cols-2 gap-6">
-                       <div className="space-y-1">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">Valor do Contrato (R$)</label>
-                          <input required type="number" value={projBudget} onChange={e => setProjBudget(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none focus:border-blue-500" />
-                       </div>
-                       <div className="space-y-1">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">Data Início</label>
-                          <input required type="date" value={projDate} onChange={e => setProjDate(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
-                       </div>
+                       <input required type="number" placeholder="Valor Global (R$)" value={projBudget} onChange={e => setProjBudget(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black" />
+                       <input required type="date" value={projDate} onChange={e => setProjDate(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold" />
                     </div>
                     <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase shadow-xl hover:bg-blue-500 transition-all flex items-center justify-center gap-3">
-                       <Save size={20} /> Salvar e Importar Gastos
+                       <Save size={20} /> Salvar Projeto
                     </button>
                  </form>
               </div>
@@ -419,7 +343,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Genérico Transação */}
+      {/* Modal Transação */}
       {genericTransaction.isOpen && (
          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-6">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
@@ -439,33 +363,21 @@ const App: React.FC = () => {
                   setGenericTransaction({ isOpen: false, projectId: null, type: 'expense' });
                   setFormDescription(''); setFormAmount('');
                }} className="p-10 space-y-6">
-                  <div className="space-y-1">
-                     <label className="text-[10px] font-black text-slate-400 uppercase">Descrição</label>
-                     <input required value={formDescription} onChange={e => setFormDescription(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold" />
-                  </div>
+                  <input required placeholder="Descrição" value={formDescription} onChange={e => setFormDescription(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" />
                   <div className="grid grid-cols-2 gap-4">
-                     <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase">Valor R$</label>
-                        <input required type="number" step="0.01" value={formAmount} onChange={e => setFormAmount(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black" />
-                     </div>
-                     <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase">Data</label>
-                        <input required type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold" />
-                     </div>
+                     <input required type="number" step="0.01" placeholder="Valor R$" value={formAmount} onChange={e => setFormAmount(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none" />
+                     <input required type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" />
                   </div>
                   {genericTransaction.type === 'expense' && (
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase">Categoria</label>
-                      <select value={formCategory} onChange={e => setFormCategory(e.target.value as ExpenseCategory)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none">
-                        <option value="Material">Material</option>
-                        <option value="Mão de Obra">Mão de Obra</option>
-                        <option value="Comissão">Comissão</option>
-                        <option value="Impostos">Impostos</option>
-                        <option value="Outros">Outros</option>
-                      </select>
-                    </div>
+                    <select value={formCategory} onChange={e => setFormCategory(e.target.value as ExpenseCategory)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none">
+                      <option value="Material">Material</option>
+                      <option value="Mão de Obra">Mão de Obra</option>
+                      <option value="Comissão">Comissão</option>
+                      <option value="Impostos">Impostos</option>
+                      <option value="Outros">Outros</option>
+                    </select>
                   )}
-                  <button type="submit" className="w-full py-5 bg-slate-900 text-white font-black rounded-2xl uppercase">Confirmar Lançamento</button>
+                  <button type="submit" className="w-full py-5 bg-slate-900 text-white font-black rounded-2xl uppercase shadow-lg">Confirmar Lançamento</button>
                </form>
             </div>
          </div>
