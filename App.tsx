@@ -5,12 +5,12 @@ import {
   BarChart3, X, Loader2, Save, FileUp, ShieldCheck, 
   LogOut, KeyRound, Building2, TrendingDown, Briefcase, 
   Coins, Receipt, RefreshCw, MapPin, PieChart as PieIcon, Users, UserPlus, Shield,
-  Calculator, Percent, Landmark, Calendar, FileText, Filter, List
+  Calculator, Percent, Landmark, Calendar, FileText, Filter, List, CheckCircle, Clock, Edit2
 } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { Project, ExpenseCategory, AuthState, User, UserRole } from './types';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { Project, ExpenseCategory, AuthState, User, UserRole, Revenue, Expense } from './types';
 import { StatCard } from './components/StatCard';
-import { analyzeFinancials, analyzeProjectDocument } from './services/geminiService';
+import { analyzeFinancials } from './services/geminiService';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
 
@@ -30,8 +30,9 @@ const App: React.FC = () => {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // Project States
-  const [isAddingProject, setIsAddingProject] = useState(false);
+  // Project States (Add/Edit)
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [projName, setProjName] = useState('');
   const [projClient, setProjClient] = useState('');
   const [projBudget, setProjBudget] = useState('');
@@ -53,12 +54,14 @@ const App: React.FC = () => {
   const [aiReport, setAiReport] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
 
+  // Transaction Modal State (Add/Edit)
   const [transactionModal, setTransactionModal] = useState<{ 
     isOpen: boolean; 
     projectId: string | null; 
+    transactionId: string | null;
     type: 'expense' | 'revenue' | 'planned_revenue' 
   }>({
-    isOpen: false, projectId: null, type: 'expense'
+    isOpen: false, projectId: null, transactionId: null, type: 'expense'
   });
   const [formDesc, setFormDesc] = useState('');
   const [formVal, setFormVal] = useState('');
@@ -135,6 +138,82 @@ const App: React.FC = () => {
     }
   };
 
+  const openProjectEdit = (p: Project) => {
+    setEditingProjectId(p.id);
+    setProjName(p.name);
+    setProjClient(p.client);
+    setProjBudget(p.budget.toString());
+    setProjTax(p.taxPercentage.toString());
+    setProjCommission(p.commissionPercentage.toString());
+    setProjLocation(p.location || '');
+    setProjDate(p.startDate);
+    setIsProjectModalOpen(true);
+  };
+
+  const handleSaveProject = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingProjectId) {
+      setProjects(projects.map(p => p.id === editingProjectId ? {
+        ...p,
+        name: projName,
+        client: projClient,
+        budget: Number(projBudget),
+        taxPercentage: Number(projTax),
+        commissionPercentage: Number(projCommission),
+        startDate: projDate,
+        location: projLocation
+      } : p));
+    } else {
+      const newP: Project = {
+        id: crypto.randomUUID(), name: projName, client: projClient, budget: Number(projBudget),
+        taxPercentage: Number(projTax), commissionPercentage: Number(projCommission),
+        startDate: projDate, location: projLocation, status: 'Em Execução', 
+        expenses: [], revenues: [], plannedRevenues: []
+      };
+      setProjects([...projects, newP]);
+    }
+    setIsProjectModalOpen(false);
+    setEditingProjectId(null);
+    setProjName(''); setProjClient(''); setProjBudget(''); setProjTax('0'); setProjCommission('0');
+  };
+
+  const handleMarkAsPaid = (projectId: string, revenueId: string) => {
+    if (!window.confirm("Deseja confirmar o recebimento desta medição? O valor será contabilizado como receita real.")) return;
+    setProjects(projects.map(p => {
+      if (p.id !== projectId) return p;
+      const planned = p.plannedRevenues.find(r => r.id === revenueId);
+      if (!planned) return p;
+      const newRevenue: Revenue = {
+        ...planned,
+        date: new Date().toISOString().split('T')[0],
+        createdAt: new Date().toISOString()
+      };
+      return {
+        ...p,
+        plannedRevenues: p.plannedRevenues.filter(r => r.id !== revenueId),
+        revenues: [...p.revenues, newRevenue]
+      };
+    }));
+  };
+
+  const openTransactionEdit = (projectId: string, type: 'expense' | 'revenue' | 'planned_revenue', id: string) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return;
+    
+    let item;
+    if (type === 'expense') item = project.expenses.find(e => e.id === id);
+    else if (type === 'revenue') item = project.revenues.find(r => r.id === id);
+    else item = project.plannedRevenues.find(r => r.id === id);
+
+    if (item) {
+      setFormDesc(item.description);
+      setFormVal(item.amount.toString());
+      setFormDateInput(item.date);
+      if (type === 'expense') setFormCat((item as Expense).category);
+      setTransactionModal({ isOpen: true, projectId, transactionId: id, type });
+    }
+  };
+
   const summary = useMemo(() => {
     const budget = projects.reduce((s, p) => s + p.budget, 0);
     const revenue = projects.reduce((s, p) => s + p.revenues.reduce((rs, r) => rs + r.amount, 0), 0);
@@ -168,11 +247,9 @@ const App: React.FC = () => {
     let list = projects.flatMap(p => 
       p.expenses.map(e => ({ ...e, projectName: p.name, projectId: p.id }))
     );
-    
     if (reportFilterProject !== 'all') {
       list = list.filter(e => e.projectId === reportFilterProject);
     }
-
     return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [projects, reportFilterProject]);
 
@@ -183,7 +260,6 @@ const App: React.FC = () => {
     }));
     if (summary.taxes > 0) categories['Impostos (Calc.)'] = summary.taxes;
     if (summary.commissions > 0) categories['Comissões (Calc.)'] = summary.commissions;
-
     return Object.entries(categories).map(([name, value]) => ({ name, value }));
   }, [projects, summary]);
 
@@ -201,7 +277,6 @@ const App: React.FC = () => {
             <h1 className="text-3xl font-black text-white uppercase tracking-tighter mb-2">Portal Corporativo</h1>
             <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Gestão Centralizada de Obras</p>
           </div>
-          
           <form onSubmit={handleLogin} className="space-y-5">
             {loginError && <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[11px] font-black uppercase text-center rounded-2xl">{loginError}</div>}
             <div className="space-y-1">
@@ -283,7 +358,7 @@ const App: React.FC = () => {
             <div className="max-w-7xl mx-auto space-y-12 animate-in fade-in duration-700 pb-20">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
                 <StatCard title="Total Contratos" value={formatBRL(summary.budget)} icon={<DollarSign size={24}/>} />
-                <StatCard title="Total Medido/Pago" value={formatBRL(summary.revenue)} icon={<TrendingUp size={24}/>} colorClass="bg-white border-l-4 border-emerald-500" />
+                <StatCard title="Total Medido/Pago" value={formatBRL(summary.revenue)} icon={<TrendingUp size={24}/>} colorClass="bg-white border-l-4 border-emerald-500" trend={{ value: 12, isPositive: true }} />
                 <StatCard title="Despesas Reais" value={formatBRL(summary.expenses)} icon={<TrendingDown size={24}/>} colorClass="bg-white border-l-4 border-rose-500" />
                 <StatCard title="Lucro Líquido Atual" value={formatBRL(summary.currentProfit)} icon={<Coins size={24}/>} colorClass="bg-slate-900 text-white shadow-2xl" />
               </div>
@@ -336,20 +411,6 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-slate-900 text-white p-8 rounded-[2.5rem] shadow-xl">
-                  <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Total em Despesas</p>
-                  <p className="text-3xl font-black">{formatBRL(allExpensesSorted.reduce((s, e) => s + e.amount, 0))}</p>
-                </div>
-                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-xl flex items-center gap-5">
-                  <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl"><List size={24} /></div>
-                  <div>
-                    <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Total de Lançamentos</p>
-                    <p className="text-2xl font-black text-slate-800">{allExpensesSorted.length}</p>
-                  </div>
-                </div>
-              </div>
-
               <div className="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-2xl">
                  <div className="overflow-x-auto">
                    <table className="w-full text-left">
@@ -360,43 +421,33 @@ const App: React.FC = () => {
                             <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400">Descrição</th>
                             <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400">Categoria</th>
                             <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400 text-right">Valor</th>
+                            <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400 text-center">Ações</th>
                          </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                          {allExpensesSorted.length > 0 ? allExpensesSorted.map(expense => (
                            <tr key={expense.id} className="hover:bg-slate-50/80 transition-all group">
                               <td className="px-10 py-6">
-                                <div className="flex items-center gap-3">
-                                  <div className="p-2 bg-slate-100 rounded-lg text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
-                                    <Calendar size={14} />
-                                  </div>
-                                  <span className="font-black text-slate-600 text-xs">
-                                    {new Date(expense.date).toLocaleDateString('pt-BR')}
-                                  </span>
-                                </div>
+                                <span className="font-black text-slate-600 text-xs">{new Date(expense.date).toLocaleDateString('pt-BR')}</span>
                               </td>
                               <td className="px-10 py-6">
-                                <span className="font-bold text-slate-900 text-xs uppercase tracking-tight">{expense.projectName}</span>
+                                <span className="font-bold text-slate-900 text-xs uppercase">{expense.projectName}</span>
                               </td>
-                              <td className="px-10 py-6 font-medium text-slate-500 text-xs italic">
-                                {expense.description}
-                              </td>
+                              <td className="px-10 py-6 font-medium text-slate-500 text-xs italic">{expense.description}</td>
                               <td className="px-10 py-6">
-                                 <span className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-full text-[9px] font-black uppercase tracking-widest border border-slate-200/50">
-                                    {expense.category}
-                                 </span>
+                                 <span className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-full text-[9px] font-black uppercase border border-slate-200/50">{expense.category}</span>
                               </td>
                               <td className="px-10 py-6 text-right">
                                  <span className="font-black text-rose-600 text-sm">{formatBRL(expense.amount)}</span>
                               </td>
+                              <td className="px-10 py-6 text-center">
+                                 <button onClick={() => openTransactionEdit(expense.projectId, 'expense', expense.id)} className="p-2 text-slate-300 hover:text-blue-600 transition-colors">
+                                    <Edit2 size={14} />
+                                 </button>
+                              </td>
                            </tr>
                          )) : (
-                           <tr>
-                             <td colSpan={5} className="px-10 py-20 text-center">
-                                <Receipt size={48} className="text-slate-200 mx-auto mb-4" />
-                                <p className="text-slate-400 font-black uppercase text-xs">Nenhuma despesa encontrada para os filtros selecionados.</p>
-                             </td>
-                           </tr>
+                           <tr><td colSpan={6} className="px-10 py-20 text-center text-slate-400 font-black uppercase text-xs">Nenhuma despesa encontrada.</td></tr>
                          )}
                       </tbody>
                    </table>
@@ -405,108 +456,76 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {activeView === 'team' && (
-            <div className="max-w-7xl mx-auto space-y-10 animate-in slide-in-from-bottom-8 duration-700">
-              <div className="flex items-center justify-between">
-                 <div>
-                    <h3 className="text-3xl font-black uppercase text-slate-800 tracking-tighter">Colaboradores</h3>
-                    <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1">Gerencie acessos da {auth.companyName}</p>
-                 </div>
-                 <button onClick={() => setIsAddingUser(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-10 py-5 rounded-2xl font-black text-xs uppercase shadow-xl transition-all flex items-center gap-4">
-                    <UserPlus size={22} /> Novo Usuário
-                 </button>
-              </div>
-              <div className="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-xl">
-                 <table className="w-full text-left">
-                    <thead className="bg-slate-50 border-b border-slate-200">
-                       <tr>
-                          <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400">Nome</th>
-                          <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400">Login</th>
-                          <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400">Função</th>
-                          <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400 text-right">Ações</th>
-                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                       {companyUsers.map(user => (
-                         <tr key={user.id} className="hover:bg-slate-50/50 transition-all">
-                            <td className="px-10 py-7 font-black text-slate-800">{user.fullName}</td>
-                            <td className="px-10 py-7 font-bold text-slate-500">{user.username}</td>
-                            <td className="px-10 py-7">
-                               <span className={`px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest ${user.role === 'admin' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-600'}`}>
-                                  {user.role}
-                               </span>
-                            </td>
-                            <td className="px-10 py-7 text-right">
-                               <button disabled={user.role === 'admin'} className="text-slate-300 hover:text-rose-500 disabled:opacity-30">
-                                  <Trash2 size={20} />
-                               </button>
-                            </td>
-                         </tr>
-                       ))}
-                    </tbody>
-                 </table>
-              </div>
-            </div>
-          )}
-
           {activeView === 'projects' && (
-             <div className="max-w-7xl mx-auto space-y-10">
+             <div className="max-w-7xl mx-auto space-y-10 pb-20">
                 <div className="flex items-center justify-between">
                   <h3 className="text-3xl font-black uppercase text-slate-800 tracking-tighter">Obras Ativas</h3>
-                  <button onClick={() => setIsAddingProject(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-10 py-5 rounded-2xl font-black text-xs uppercase shadow-xl transition-all flex items-center gap-4">
+                  <button onClick={() => { setEditingProjectId(null); setIsProjectModalOpen(true); }} className="bg-blue-600 hover:bg-blue-500 text-white px-10 py-5 rounded-2xl font-black text-xs uppercase shadow-xl transition-all flex items-center gap-4">
                     <Plus size={22} /> Nova Obra
                   </button>
                 </div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-10">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                   {projects.map(p => {
                     const pExpenses = p.expenses.reduce((s, e) => s + e.amount, 0);
                     const pRevenue = p.revenues.reduce((s, r) => s + r.amount, 0);
-                    const pTaxVal = pRevenue * (p.taxPercentage / 100);
-                    const pCommVal = (pRevenue - pTaxVal) * (p.commissionPercentage / 100);
                     return (
-                      <div key={p.id} className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-lg group relative overflow-hidden flex flex-col h-full">
-                        {auth.currentUser?.role === 'admin' && (
-                          <button onClick={() => handleDeleteProject(p.id, p.name)} className="absolute top-8 right-8 p-3 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all duration-300" title="Excluir Obra">
-                            <Trash2 size={20} />
+                      <div key={p.id} className="bg-white rounded-[3rem] border border-slate-200 p-10 shadow-lg group relative overflow-hidden flex flex-col h-full border-t-8 border-t-blue-600">
+                        <div className="absolute top-8 right-8 flex gap-2">
+                          <button onClick={() => openProjectEdit(p)} className="p-3 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all">
+                            <Edit2 size={18} />
                           </button>
-                        )}
+                          {auth.currentUser?.role === 'admin' && (
+                            <button onClick={() => handleDeleteProject(p.id, p.name)} className="p-3 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
+                              <Trash2 size={18} />
+                            </button>
+                          )}
+                        </div>
                         <div className="flex-1">
-                          <h4 className="font-black text-xl uppercase mb-1 text-slate-800 pr-10">{p.name}</h4>
+                          <h4 className="font-black text-2xl uppercase mb-1 text-slate-800 pr-24">{p.name}</h4>
                           <div className="flex gap-4 mb-4">
-                             <div className="text-[9px] font-black uppercase bg-slate-100 px-2 py-1 rounded text-slate-500">Imp: {p.taxPercentage}%</div>
-                             <div className="text-[9px] font-black uppercase bg-slate-100 px-2 py-1 rounded text-slate-500">Com: {p.commissionPercentage}%</div>
+                             <div className="text-[9px] font-black uppercase bg-slate-100 px-3 py-1.5 rounded-full text-slate-500">Imp: {p.taxPercentage}%</div>
+                             <div className="text-[9px] font-black uppercase bg-slate-100 px-3 py-1.5 rounded-full text-slate-500">Com: {p.commissionPercentage}%</div>
                           </div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2"><MapPin size={12} /> {p.location || 'Local indefinido'}</p>
-                          <div className="grid grid-cols-1 gap-3 mb-8">
-                            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center">
-                               <p className="text-[9px] font-black text-slate-400 uppercase">Gasto Atual</p>
-                               <p className="font-black text-rose-600 text-sm">{formatBRL(pExpenses)}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-8 flex items-center gap-2"><MapPin size={12} /> {p.location || 'Local indefinido'}</p>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                            <div className="p-5 bg-slate-50 rounded-[1.5rem] border border-slate-100">
+                               <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Custos Totais</p>
+                               <p className="font-black text-rose-600 text-lg">{formatBRL(pExpenses)}</p>
                             </div>
-                            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex justify-between items-center">
-                               <p className="text-[9px] font-black text-emerald-600 uppercase">Recebido</p>
-                               <p className="font-black text-emerald-700 text-sm">{formatBRL(pRevenue)}</p>
+                            <div className="p-5 bg-emerald-50 rounded-[1.5rem] border border-emerald-100">
+                               <p className="text-[9px] font-black text-emerald-600 uppercase mb-1">Faturamento Real</p>
+                               <p className="font-black text-emerald-700 text-lg">{formatBRL(pRevenue)}</p>
                             </div>
-                            <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex justify-between items-center">
-                               <p className="text-[9px] font-black text-amber-600 uppercase">Impostos + Comissões</p>
-                               <p className="font-black text-amber-700 text-sm">{formatBRL(pTaxVal + pCommVal)}</p>
-                            </div>
+                          </div>
+
+                          <div className="bg-blue-50/50 rounded-[2rem] p-6 mb-8 border border-blue-100">
+                             <h5 className="text-[10px] font-black uppercase text-blue-600 flex items-center gap-2 mb-4">
+                                <Clock size={14} /> Medições Previstas ({p.plannedRevenues?.length || 0})
+                             </h5>
+                             <div className="space-y-3">
+                                {p.plannedRevenues && p.plannedRevenues.length > 0 ? p.plannedRevenues.map(rev => (
+                                   <div key={rev.id} className="bg-white p-4 rounded-2xl shadow-sm flex items-center justify-between border border-blue-100">
+                                      <div>
+                                         <p className="font-black text-slate-800 text-sm">{formatBRL(rev.amount)}</p>
+                                         <p className="text-[9px] font-bold text-slate-400 uppercase">{rev.description} - {new Date(rev.date).toLocaleDateString()}</p>
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <button onClick={() => openTransactionEdit(p.id, 'planned_revenue', rev.id)} className="p-2 text-slate-300 hover:text-blue-600"><Edit2 size={16} /></button>
+                                        <button onClick={() => handleMarkAsPaid(p.id, rev.id)} className="p-2 bg-emerald-100 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-xl transition-all"><CheckCircle size={16} /></button>
+                                      </div>
+                                   </div>
+                                )) : (
+                                   <p className="text-[9px] font-bold text-slate-400 uppercase italic">Sem medições pendentes.</p>
+                                )}
+                             </div>
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 mt-auto">
-                          <button onClick={() => {
-                            setTransactionModal({ isOpen: true, projectId: p.id, type: 'expense' });
-                            setFormDateInput(new Date().toISOString().split('T')[0]);
-                          }} className="py-4 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase">Custo</button>
-                          <div className="grid grid-cols-1 gap-1">
-                            <button onClick={() => {
-                              setTransactionModal({ isOpen: true, projectId: p.id, type: 'revenue' });
-                              setFormDateInput(new Date().toISOString().split('T')[0]);
-                            }} className="py-2 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase">Recebido</button>
-                            <button onClick={() => {
-                              setTransactionModal({ isOpen: true, projectId: p.id, type: 'planned_revenue' });
-                              setFormDateInput(new Date().toISOString().split('T')[0]);
-                            }} className="py-2 bg-blue-600 text-white rounded-lg text-[9px] font-black uppercase">Previsto</button>
-                          </div>
+
+                        <div className="grid grid-cols-3 gap-3 mt-auto">
+                          <button onClick={() => setTransactionModal({ isOpen: true, projectId: p.id, transactionId: null, type: 'expense' })} className="py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase shadow-lg">Custo</button>
+                          <button onClick={() => setTransactionModal({ isOpen: true, projectId: p.id, transactionId: null, type: 'revenue' })} className="py-4 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-lg">Receita</button>
+                          <button onClick={() => setTransactionModal({ isOpen: true, projectId: p.id, transactionId: null, type: 'planned_revenue' })} className="py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase shadow-lg">Previsto</button>
                         </div>
                       </div>
                     );
@@ -515,193 +534,107 @@ const App: React.FC = () => {
              </div>
           )}
 
+          {activeView === 'team' && (
+            <div className="max-w-7xl mx-auto space-y-10">
+               <div className="flex items-center justify-between">
+                  <h3 className="text-3xl font-black uppercase text-slate-800 tracking-tighter">Equipe</h3>
+                  <button onClick={() => setIsAddingUser(true)} className="bg-blue-600 text-white px-8 py-4 rounded-xl font-black text-xs uppercase shadow-lg">Novo Usuário</button>
+               </div>
+               <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-xl">
+                 <table className="w-full text-left">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                       <tr><th className="px-8 py-6 text-[10px] font-black uppercase">Nome</th><th className="px-8 py-6 text-[10px] font-black uppercase">Função</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                       {companyUsers.map(u => (
+                         <tr key={u.id}><td className="px-8 py-6 font-bold">{u.fullName}</td><td className="px-8 py-6 uppercase text-[10px] font-black">{u.role}</td></tr>
+                       ))}
+                    </tbody>
+                 </table>
+               </div>
+            </div>
+          )}
+
           {activeView === 'ai' && (
              <div className="max-w-4xl mx-auto p-12 bg-white rounded-[3rem] border border-slate-200 shadow-2xl">
-                <div className="flex items-center justify-between mb-12">
-                   <div className="flex items-center gap-6">
-                     <div className="p-5 bg-blue-600 rounded-3xl text-white shadow-xl"><BrainCircuit size={40} /></div>
-                     <div>
-                       <h3 className="text-2xl font-black uppercase text-slate-800">Auditor Inteligente</h3>
-                       <p className="text-slate-400 text-[10px] font-black uppercase mt-2 tracking-widest">IA analisando custos e margens</p>
-                     </div>
-                   </div>
-                   <button onClick={async () => { setIsAiLoading(true); setAiReport(await analyzeFinancials(projects)); setIsAiLoading(false); }} className="p-4 bg-slate-100 hover:bg-slate-200 rounded-2xl transition-all">
-                     <RefreshCw size={24} className={isAiLoading ? 'animate-spin' : ''} />
-                   </button>
+                <div className="flex items-center justify-between mb-8">
+                   <h3 className="text-2xl font-black uppercase">Auditor Inteligente</h3>
+                   <button onClick={async () => { setIsAiLoading(true); setAiReport(await analyzeFinancials(projects)); setIsAiLoading(false); }} className="p-4 bg-slate-100 rounded-2xl"><RefreshCw size={24} className={isAiLoading ? 'animate-spin' : ''} /></button>
                 </div>
-                <div className="bg-slate-50 p-10 rounded-[2rem] border border-slate-100 min-h-[400px]">
-                   {isAiLoading ? (
-                     <div className="flex flex-col items-center justify-center py-20 gap-6">
-                        <Loader2 className="animate-spin text-blue-600" size={56} />
-                        <p className="text-sm font-black uppercase text-slate-800 animate-pulse">Cruzando dados financeiros...</p>
-                     </div>
-                   ) : (
-                     <div className="prose prose-slate max-w-none whitespace-pre-wrap leading-relaxed text-lg">
-                       {aiReport || "Toque no botão de atualizar para uma análise estratégica."}
-                     </div>
-                   )}
-                </div>
+                <div className="bg-slate-50 p-10 rounded-[2rem] prose prose-slate max-w-none">{aiReport || "Toque em atualizar."}</div>
              </div>
           )}
         </div>
       </main>
 
-      {/* MODAL: NOVA OBRA */}
-      {isAddingProject && (
+      {/* MODAL: OBRA (NOVA / EDITAR) */}
+      {isProjectModalOpen && (
         <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-8 overflow-y-auto">
-           <div className="bg-white rounded-[3.5rem] shadow-2xl w-full max-w-3xl overflow-hidden animate-in zoom-in-95 duration-500 my-auto">
+           <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-3xl overflow-hidden animate-in zoom-in-95 duration-500 my-auto">
               <div className="p-10 bg-blue-600 text-white flex justify-between items-center">
-                 <h3 className="text-2xl font-black uppercase tracking-tight">Cadastro de Obra</h3>
-                 <button onClick={() => setIsAddingProject(false)} className="p-3 hover:bg-white/10 rounded-full transition-all"><X size={32} /></button>
+                 <h3 className="text-2xl font-black uppercase">{editingProjectId ? 'Corrigir Obra' : 'Nova Obra'}</h3>
+                 <button onClick={() => setIsProjectModalOpen(false)} className="p-3 hover:bg-white/10 rounded-full"><X size={32} /></button>
               </div>
-              <div className="p-12 space-y-8">
-                 <form onSubmit={(e) => {
-                    e.preventDefault();
-                    const newP: Project = {
-                      id: crypto.randomUUID(), name: projName, client: projClient, budget: Number(projBudget),
-                      taxPercentage: Number(projTax), commissionPercentage: Number(projCommission),
-                      startDate: projDate, location: projLocation, status: 'Em Execução', 
-                      expenses: [], revenues: [], plannedRevenues: []
-                    };
-                    setProjects([...projects, newP]);
-                    setIsAddingProject(false);
-                    setProjName(''); setProjClient(''); setProjBudget(''); setProjTax('0'); setProjCommission('0');
-                 }} className="space-y-6">
-                    <div className="grid grid-cols-2 gap-6">
-                       <input required placeholder="Obra / Projeto" value={projName} onChange={e => setProjName(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                       <input required placeholder="Contratante" value={projClient} onChange={e => setProjClient(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                    </div>
-                    <input placeholder="Endereço / Local" value={projLocation} onChange={e => setProjLocation(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                    <div className="grid grid-cols-3 gap-6">
-                       <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Valor Global</label>
-                          <input required type="number" step="0.01" value={projBudget} onChange={e => setProjBudget(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black" />
-                       </div>
-                       <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Imposto (%)</label>
-                          <input required type="number" step="0.01" value={projTax} onChange={e => setProjTax(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-orange-600" />
-                       </div>
-                       <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Comissão (%)</label>
-                          <input required type="number" step="0.01" value={projCommission} onChange={e => setProjCommission(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-amber-600" />
-                       </div>
-                    </div>
-                    <div className="space-y-1">
-                       <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Data de Início</label>
-                       <input required type="date" value={projDate} onChange={e => setProjDate(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                    </div>
-                    <button type="submit" className="w-full py-7 bg-blue-600 text-white font-black rounded-3xl uppercase shadow-2xl flex items-center justify-center gap-4"><Save size={24} /> Registrar Obra</button>
-                 </form>
-              </div>
+              <form onSubmit={handleSaveProject} className="p-12 space-y-8">
+                 <div className="grid grid-cols-2 gap-6">
+                    <input required placeholder="Obra / Projeto" value={projName} onChange={e => setProjName(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                    <input required placeholder="Contratante" value={projClient} onChange={e => setProjClient(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                 </div>
+                 <input placeholder="Endereço / Local" value={projLocation} onChange={e => setProjLocation(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                 <div className="grid grid-cols-3 gap-6">
+                    <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Valor Contratado</label><input required type="number" step="0.01" value={projBudget} onChange={e => setProjBudget(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black" /></div>
+                    <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Imposto (%)</label><input required type="number" step="0.01" value={projTax} onChange={e => setProjTax(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-orange-600" /></div>
+                    <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Comissão (%)</label><input required type="number" step="0.01" value={projCommission} onChange={e => setProjCommission(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-amber-600" /></div>
+                 </div>
+                 <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 uppercase ml-4">Início da Obra</label><input required type="date" value={projDate} onChange={e => setProjDate(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" /></div>
+                 <button type="submit" className="w-full py-7 bg-blue-600 text-white font-black rounded-3xl uppercase shadow-xl flex items-center justify-center gap-4"><Save size={24} /> {editingProjectId ? 'Salvar Correções' : 'Registrar Obra'}</button>
+              </form>
            </div>
         </div>
       )}
 
-      {/* MODAL: LANÇAMENTO FINANCEIRO */}
+      {/* MODAL: LANÇAMENTO (NOVO / EDITAR) */}
       {transactionModal.isOpen && (
          <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-8">
             <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-300">
-               <div className={`p-10 text-white flex justify-between items-center ${
-                 transactionModal.type === 'expense' ? 'bg-slate-900' : 
-                 transactionModal.type === 'revenue' ? 'bg-emerald-600' : 'bg-blue-600'
-               }`}>
-                  <h3 className="text-2xl font-black uppercase">
-                    {transactionModal.type === 'expense' ? 'Nova Despesa' : 
-                     transactionModal.type === 'revenue' ? 'Medição Realizada' : 'Medição Prevista'}
-                  </h3>
-                  <button onClick={() => setTransactionModal({ isOpen: false, projectId: null, type: 'expense' })} className="p-4 hover:bg-white/15 rounded-full"><X size={32} /></button>
+               <div className={`p-10 text-white flex justify-between items-center ${transactionModal.type === 'expense' ? 'bg-slate-900' : transactionModal.type === 'revenue' ? 'bg-emerald-600' : 'bg-blue-600'}`}>
+                  <h3 className="text-2xl font-black uppercase">{transactionModal.transactionId ? 'Editar Lançamento' : transactionModal.type === 'expense' ? 'Nova Despesa' : 'Nova Medição'}</h3>
+                  <button onClick={() => { setTransactionModal({ isOpen: false, projectId: null, transactionId: null, type: 'expense' }); setFormDesc(''); setFormVal(''); }} className="p-4 hover:bg-white/15 rounded-full"><X size={32} /></button>
                </div>
                <form onSubmit={(e) => {
                   e.preventDefault();
                   setProjects(projects.map(p => {
                     if (p.id !== transactionModal.projectId) return p;
-                    const item = { 
-                      id: crypto.randomUUID(), description: formDesc, amount: Number(formVal), 
-                      date: formDateInput, createdAt: new Date().toISOString(),
-                      createdBy: auth.currentUser?.fullName
+                    
+                    const updateItem = (list: any[]) => {
+                      if (transactionModal.transactionId) {
+                        return list.map(item => item.id === transactionModal.transactionId ? { ...item, description: formDesc, amount: Number(formVal), date: formDateInput, category: formCat } : item);
+                      }
+                      const newItem = { id: crypto.randomUUID(), description: formDesc, amount: Number(formVal), date: formDateInput, createdAt: new Date().toISOString(), createdBy: auth.currentUser?.fullName, category: formCat };
+                      return [...list, newItem];
                     };
-                    if (transactionModal.type === 'expense') return { ...p, expenses: [...p.expenses, { ...item, category: formCat }] };
-                    if (transactionModal.type === 'revenue') return { ...p, revenues: [...p.revenues, item] };
-                    const updatedPlanned = p.plannedRevenues || [];
-                    return { ...p, plannedRevenues: [...updatedPlanned, item] };
+
+                    if (transactionModal.type === 'expense') return { ...p, expenses: updateItem(p.expenses) };
+                    if (transactionModal.type === 'revenue') return { ...p, revenues: updateItem(p.revenues) };
+                    return { ...p, plannedRevenues: updateItem(p.plannedRevenues) };
                   }));
-                  setTransactionModal({ isOpen: false, projectId: null, type: 'expense' });
+                  setTransactionModal({ isOpen: false, projectId: null, transactionId: null, type: 'expense' });
                   setFormDesc(''); setFormVal('');
                }} className="p-10 space-y-6">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Data do Lançamento</label>
-                    <div className="relative">
-                       <Calendar className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
-                       <input required type="date" value={formDateInput} onChange={e => setFormDateInput(e.target.value)} className="w-full p-5 pl-14 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all" />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Descrição</label>
-                    <input required placeholder="Ex: Compra de Cimento, NF 044..." value={formDesc} onChange={e => setFormDesc(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:border-blue-500" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Valor R$</label>
-                    <input required type="number" step="0.01" placeholder="0,00" value={formVal} onChange={e => setFormVal(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none focus:border-blue-500" />
+                  <input required placeholder="Descrição / Identificação" value={formDesc} onChange={e => setFormDesc(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                  <div className="grid grid-cols-2 gap-6">
+                    <input required type="number" step="0.01" placeholder="Valor R$" value={formVal} onChange={e => setFormVal(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xl" />
+                    <input required type="date" value={formDateInput} onChange={e => setFormDateInput(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
                   </div>
                   {transactionModal.type === 'expense' && (
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Categoria de Custo</label>
-                      <select value={formCat} onChange={e => setFormCat(e.target.value as any)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black uppercase outline-none focus:border-blue-500">
-                        <option value="Material">Material</option>
-                        <option value="Mão de Obra">Mão de Obra</option>
-                        <option value="Logística">Logística</option>
-                        <option value="Equipamentos">Equipamentos</option>
-                        <option value="Impostos">Impostos</option>
-                        <option value="Comissão">Comissão</option>
-                        <option value="Serviços Terceiros">Serviços Terceiros</option>
-                        <option value="Outros">Outros</option>
-                      </select>
-                    </div>
+                    <select value={formCat} onChange={e => setFormCat(e.target.value as any)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black uppercase outline-none">
+                      {['Material', 'Mão de Obra', 'Logística', 'Equipamentos', 'Impostos', 'Comissão', 'Serviços Terceiros', 'Outros'].map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
                   )}
-                  <button type="submit" className={`w-full py-6 text-white font-black rounded-2xl uppercase shadow-xl transition-all ${
-                    transactionModal.type === 'expense' ? 'bg-slate-900' : 
-                    transactionModal.type === 'revenue' ? 'bg-emerald-600' : 'bg-blue-600'
-                  }`}>Confirmar Registro</button>
+                  <button type="submit" className={`w-full py-6 text-white font-black rounded-2xl uppercase shadow-xl ${transactionModal.type === 'expense' ? 'bg-slate-900' : 'bg-emerald-600'}`}>{transactionModal.transactionId ? 'Salvar Alterações' : 'Confirmar Registro'}</button>
                </form>
             </div>
          </div>
-      )}
-
-      {/* MODAL: NOVO USUÁRIO */}
-      {isAddingUser && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-8">
-           <div className="bg-white rounded-[3.5rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-300">
-              <div className="p-10 bg-slate-900 text-white flex justify-between items-center">
-                 <h3 className="text-2xl font-black uppercase tracking-tight">Novo Colaborador</h3>
-                 <button onClick={() => setIsAddingUser(false)} className="p-3 hover:bg-white/10 rounded-full transition-all"><X size={32} /></button>
-              </div>
-              <form onSubmit={handleAddUser} className="p-12 space-y-6">
-                 <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Nome Completo</label>
-                    <input required value={newUserFullName} onChange={e => setNewUserFullName(e.target.value)} placeholder="Ex: Eng. Roberto" className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                 </div>
-                 <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-1">
-                       <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Login</label>
-                       <input required value={newUserName} onChange={e => setNewUserName(e.target.value)} placeholder="roberto.obra" className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                    </div>
-                    <div className="space-y-1">
-                       <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Senha</label>
-                       <input required type="password" value={newUserPass} onChange={e => setNewUserPass(e.target.value)} placeholder="••••" className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                    </div>
-                 </div>
-                 <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Função</label>
-                    <select value={newUserRole} onChange={e => setNewUserRole(e.target.value as any)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black uppercase text-[11px]">
-                       <option value="engenheiro">Engenharia</option>
-                       <option value="financeiro">Financeiro</option>
-                       <option value="visitante">Consulta</option>
-                    </select>
-                 </div>
-                 <button type="submit" className="w-full py-6 bg-blue-600 text-white font-black rounded-3xl uppercase shadow-xl mt-4">Criar Usuário</button>
-              </form>
-           </div>
-        </div>
       )}
     </div>
   );
