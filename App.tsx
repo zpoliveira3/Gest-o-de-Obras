@@ -44,7 +44,8 @@ import {
   Monitor,
   Download,
   Database,
-  Settings
+  Settings,
+  CalendarClock
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -79,7 +80,11 @@ const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeView, setActiveView] = useState<'dashboard' | 'projects' | 'forecast' | 'ai'>('dashboard');
   const [isAddingProject, setIsAddingProject] = useState(false);
-  const [genericTransaction, setGenericTransaction] = useState<{ isOpen: boolean; projectId: string | null; type: 'expense' | 'revenue' }>({ isOpen: false, projectId: null, type: 'expense' });
+  const [genericTransaction, setGenericTransaction] = useState<{ 
+    isOpen: boolean; 
+    projectId: string | null; 
+    type: 'expense' | 'revenue_paid' | 'revenue_planned' 
+  }>({ isOpen: false, projectId: null, type: 'expense' });
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
@@ -110,7 +115,7 @@ const App: React.FC = () => {
 
   const summary = useMemo(() => {
     const totalBudget = projects.reduce((acc, p) => acc + p.budget, 0);
-    const totalPlanned = projects.reduce((acc, p) => acc + (p.plannedRevenue || 0), 0);
+    const totalPlanned = projects.reduce((acc, p) => acc + (p.plannedRevenues?.reduce((sum, r) => sum + r.amount, 0) || 0), 0);
     const totalExpenses = projects.reduce((acc, p) => acc + p.expenses.reduce((sum, e) => sum + e.amount, 0), 0);
     const totalRevenue = projects.reduce((acc, p) => acc + p.revenues.reduce((sum, r) => sum + r.amount, 0), 0);
     const netProfit = totalRevenue - totalExpenses;
@@ -268,9 +273,9 @@ const App: React.FC = () => {
              <div className="max-w-7xl mx-auto space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                    <StatCard title="Total Contratos" value={formatCurrency(summary.totalBudget)} icon={<DollarSign size={20}/>} />
-                   <StatCard title="Total Previsto" value={formatCurrency(summary.totalPlanned)} icon={<TrendingUp size={20}/>} colorClass="bg-white border-l-4 border-blue-400" />
+                   <StatCard title="Receita Prevista" value={formatCurrency(summary.totalPlanned)} icon={<CalendarClock size={20}/>} colorClass="bg-white border-l-4 border-blue-400" />
+                   <StatCard title="Receita Paga" value={formatCurrency(summary.totalRevenue)} icon={<TrendingUp size={20}/>} colorClass="bg-white border-l-4 border-emerald-400" />
                    <StatCard title="Gastos Totais" value={formatCurrency(summary.totalExpenses)} icon={<Wallet size={20}/>} colorClass="bg-white border-l-4 border-rose-500" />
-                   <StatCard title="Saldo em Caixa" value={formatCurrency(summary.netProfit)} icon={<Scale size={20}/>} />
                 </div>
                 <div className="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
                    <h3 className="font-black text-slate-800 uppercase text-xs mb-6 tracking-widest">Contratos por Projeto</h3>
@@ -298,8 +303,9 @@ const App: React.FC = () => {
                 <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                    {projects.length > 0 ? projects.map(p => {
                       const costs = p.expenses.reduce((acc, e) => acc + e.amount, 0);
-                      const rev = p.revenues.reduce((acc, r) => acc + r.amount, 0);
-                      const planned = p.plannedRevenue || 0;
+                      const revPaid = p.revenues.reduce((acc, r) => acc + r.amount, 0);
+                      const revPlanned = p.plannedRevenues?.reduce((acc, r) => acc + r.amount, 0) || 0;
+                      
                       return (
                         <div key={p.id} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-blue-200 transition-all">
                            <div className="p-8 flex-1">
@@ -321,19 +327,26 @@ const App: React.FC = () => {
                                     <span className="text-xs font-black text-slate-900">{formatCurrency(p.budget)}</span>
                                  </div>
                                  <div className="flex justify-between items-center">
-                                    <span className="text-[10px] font-black text-blue-400 uppercase">Receita Prevista</span>
-                                    <span className="text-xs font-black text-blue-600">{formatCurrency(planned)}</span>
+                                    <span className="text-[10px] font-black text-blue-400 uppercase">Total Previsto</span>
+                                    <span className="text-xs font-black text-blue-600">{formatCurrency(revPlanned)}</span>
+                                 </div>
+                                 <div className="flex justify-between items-center">
+                                    <span className="text-[10px] font-black text-emerald-400 uppercase">Total Pago (Real)</span>
+                                    <span className="text-xs font-black text-emerald-600">{formatCurrency(revPaid)}</span>
                                  </div>
                               </div>
 
-                              <div className="grid grid-cols-2 gap-3 mt-4">
-                                 <div className="p-3 bg-rose-50 text-center rounded-xl border border-rose-100"><p className="text-[9px] font-black text-rose-400 uppercase">Saídas</p><p className="font-black text-rose-600 text-xs">{formatCurrency(costs)}</p></div>
-                                 <div className="p-3 bg-emerald-50 text-center rounded-xl border border-emerald-100"><p className="text-[9px] font-black text-emerald-400 uppercase">Realizado</p><p className="font-black text-emerald-600 text-xs">{formatCurrency(rev)}</p></div>
+                              <div className="grid grid-cols-1 gap-3 mt-4">
+                                 <div className="p-3 bg-rose-50 text-center rounded-xl border border-rose-100 flex justify-between items-center px-4">
+                                    <p className="text-[9px] font-black text-rose-400 uppercase">Total de Saídas</p>
+                                    <p className="font-black text-rose-600 text-xs">{formatCurrency(costs)}</p>
+                                 </div>
                               </div>
                            </div>
-                           <div className="bg-slate-50 p-4 border-t border-slate-100 grid grid-cols-2 gap-2">
-                              <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'expense' })} className="py-3 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase hover:bg-slate-800 transition-colors">Lançar Saída</button>
-                              <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue' })} className="py-3 bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase hover:bg-blue-500 transition-colors">Lançar Entrada</button>
+                           <div className="bg-slate-50 p-4 border-t border-slate-100 grid grid-cols-3 gap-2">
+                              <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'expense' })} className="py-2.5 bg-slate-900 text-white rounded-xl text-[8px] font-black uppercase hover:bg-slate-800 transition-colors leading-tight">Lançar<br/>Saída</button>
+                              <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_planned' })} className="py-2.5 bg-blue-600 text-white rounded-xl text-[8px] font-black uppercase hover:bg-blue-500 transition-colors leading-tight">Receita<br/>Prevista</button>
+                              <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_paid' })} className="py-2.5 bg-emerald-600 text-white rounded-xl text-[8px] font-black uppercase hover:bg-emerald-500 transition-colors leading-tight">Receita<br/>Paga</button>
                            </div>
                         </div>
                       )
@@ -463,9 +476,15 @@ const App: React.FC = () => {
       {genericTransaction.isOpen && (
          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-6">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-               <div className={`p-8 text-white flex justify-between items-center ${genericTransaction.type === 'expense' ? 'bg-slate-900' : 'bg-blue-600'}`}>
+               <div className={`p-8 text-white flex justify-between items-center ${
+                 genericTransaction.type === 'expense' ? 'bg-slate-900' : 
+                 genericTransaction.type === 'revenue_planned' ? 'bg-blue-600' : 'bg-emerald-600'
+               }`}>
                   <div>
-                    <h3 className="text-xl font-black uppercase tracking-widest">{genericTransaction.type === 'expense' ? 'Registro de Despesa' : 'Lançamento de Receita'}</h3>
+                    <h3 className="text-xl font-black uppercase tracking-widest">
+                      {genericTransaction.type === 'expense' ? 'Registro de Despesa' : 
+                       genericTransaction.type === 'revenue_planned' ? 'Receita Prevista' : 'Receita Paga'}
+                    </h3>
                     <p className="text-[10px] font-bold opacity-60 uppercase tracking-widest mt-1">Módulo Financeiro Central</p>
                   </div>
                   <button onClick={() => setGenericTransaction({ isOpen: false, projectId: null, type: 'expense' })} className="p-2 hover:bg-white/10 rounded-full transition-colors">
@@ -478,10 +497,14 @@ const App: React.FC = () => {
                   const amount = Number(formData.get('amount'));
                   const description = formData.get('description') as string;
                   const date = formData.get('date') as string;
+                  
                   setProjects(prev => prev.map(p => {
                      if (p.id !== genericTransaction.projectId) return p;
+                     
                      if (genericTransaction.type === 'expense') {
                         return { ...p, expenses: [...p.expenses, { id: crypto.randomUUID(), description, amount, date, category: formData.get('category') as any }] };
+                     } else if (genericTransaction.type === 'revenue_planned') {
+                        return { ...p, plannedRevenues: [...(p.plannedRevenues || []), { id: crypto.randomUUID(), description, amount, date }] };
                      } else {
                         return { ...p, revenues: [...p.revenues, { id: crypto.randomUUID(), description, amount, date }] };
                      }
@@ -489,8 +512,8 @@ const App: React.FC = () => {
                   setGenericTransaction({ isOpen: false, projectId: null, type: 'expense' });
                }} className="p-10 space-y-6">
                   <div className="space-y-1">
-                     <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Descrição</label>
-                     <input required name="description" placeholder="Ex: NF Material de Alvenaria" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
+                     <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Descrição do Lançamento</label>
+                     <input required name="description" placeholder={genericTransaction.type === 'revenue_planned' ? "Ex: Medição Prevista Outubro" : "Ex: NF Material de Alvenaria"} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                      <div className="space-y-1">
@@ -515,7 +538,12 @@ const App: React.FC = () => {
                         </select>
                      </div>
                   )}
-                  <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase shadow-xl hover:bg-blue-500 transition-all active:scale-[0.98] tracking-widest text-xs">Confirmar Registro</button>
+                  <button type="submit" className={`w-full py-5 text-white font-black rounded-2xl uppercase shadow-xl transition-all active:scale-[0.98] tracking-widest text-xs ${
+                    genericTransaction.type === 'expense' ? 'bg-slate-900 hover:bg-slate-800' : 
+                    genericTransaction.type === 'revenue_planned' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-emerald-600 hover:bg-emerald-500'
+                  }`}>
+                    Confirmar Registro
+                  </button>
                </form>
             </div>
          </div>
@@ -526,7 +554,7 @@ const App: React.FC = () => {
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
                <div className="p-8 bg-blue-600 text-white flex justify-between items-center">
                   <h3 className="text-xl font-black uppercase tracking-tighter">Abertura de Obra</h3>
-                  <button onClick={() => setIsAddingProject(false)}><X size={24} /></button>
+                  <button onClick={() => setIsAddingProject(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24} /></button>
                </div>
                <form onSubmit={(e) => {
                   e.preventDefault();
@@ -536,11 +564,11 @@ const App: React.FC = () => {
                      name: formData.get('name') as string, 
                      client: formData.get('client') as string, 
                      budget: Number(formData.get('budget')), 
-                     plannedRevenue: Number(formData.get('plannedRevenue') || 0),
                      startDate: new Date().toISOString(), 
                      status: 'Em Execução', 
                      expenses: [], 
-                     revenues: [] 
+                     revenues: [],
+                     plannedRevenues: []
                   }]);
                   setIsAddingProject(false);
                }} className="p-10 space-y-5 overflow-y-auto max-h-[80vh]">
@@ -552,15 +580,9 @@ const App: React.FC = () => {
                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Órgão / Cliente</label>
                      <input required name="client" placeholder="Ex: Secretaria de Obras" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Valor do Contrato R$</label>
-                      <input required name="budget" type="number" step="0.01" placeholder="0,00" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none focus:border-blue-500" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-blue-400 uppercase ml-1">Receita Prevista R$</label>
-                      <input name="plannedRevenue" type="number" step="0.01" placeholder="0,00" className="w-full p-4 bg-blue-50/50 border border-blue-100 rounded-xl font-black outline-none focus:border-blue-500" title="Quanto você planeja receber nesta obra (ex: medição atual)" />
-                    </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Valor Global do Contrato R$</label>
+                    <input required name="budget" type="number" step="0.01" placeholder="0,00" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none focus:border-blue-500" />
                   </div>
                   <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase shadow-xl hover:bg-blue-500 transition-all tracking-widest text-xs">Cadastrar no Sistema</button>
                </form>
