@@ -235,7 +235,6 @@ const App: React.FC = () => {
             if (data.client) setProjClient(data.client);
             if (data.budget) setProjBudget(data.budget.toString());
             if (data.startDate) setProjDate(data.startDate);
-            // Os itens de receitas/gastos serão injetados na criação se o usuário confirmar
             (window as any)._extractedProjectData = data;
           }
         } finally {
@@ -289,37 +288,6 @@ const App: React.FC = () => {
     }));
   };
 
-  if (!auth.isLoggedIn) {
-     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 relative overflow-hidden">
-        <div className="w-full max-w-lg relative z-10 animate-in fade-in zoom-in-95 duration-700">
-          <div className="text-center mb-10">
-            <div className="inline-flex items-center gap-4 mb-4">
-               <div className="p-5 bg-blue-600 rounded-[2.5rem] shadow-2xl rotate-12"><ShieldCheck size={48} className="text-white -rotate-12" /></div>
-               <div className="text-left">
-                  <h1 className="text-3xl font-black text-white tracking-tighter leading-none uppercase">Gestão Obras</h1>
-                  <p className="text-blue-500 font-bold tracking-[0.2em] text-xs mt-1 uppercase">ERP Central Professional</p>
-               </div>
-            </div>
-          </div>
-          <div className="bg-slate-900/80 backdrop-blur-2xl border border-slate-800 p-10 rounded-[2rem] shadow-2xl">
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              const formData = new FormData(e.currentTarget);
-              setAuth({ isLoggedIn: true, companyName: formData.get('companyName') as string, companyKey: (formData.get('companyKey') as string).toUpperCase(), userRole: 'admin' });
-            }} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input required name="companyName" type="text" placeholder="Empresa" className="w-full bg-slate-800/50 border border-slate-700 text-white px-4 py-4 rounded-2xl outline-none focus:border-blue-500 transition-all" />
-                <input required name="companyKey" type="text" placeholder="Chave de Acesso" className="w-full bg-slate-800/50 border border-slate-700 text-white px-4 py-4 rounded-2xl outline-none focus:border-blue-500 transition-all uppercase" />
-              </div>
-              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white py-5 rounded-2xl font-black shadow-xl transition-all">Entrar no Sistema</button>
-            </form>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-screen flex flex-col md:flex-row bg-slate-100 overflow-hidden">
       <aside className="w-full md:w-64 bg-slate-900 text-white flex flex-col shrink-0 z-20 shadow-2xl">
@@ -342,18 +310,20 @@ const App: React.FC = () => {
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0">
-           <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">{activeView}</h2>
-           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase bg-emerald-50 text-emerald-600 border-emerald-100">Status: Conectado</div>
+        <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0 uppercase text-[10px] font-black tracking-widest text-slate-400">
+           <h2>{activeView} / {auth.companyName}</h2>
+           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-emerald-50 text-emerald-600 border-emerald-100 uppercase text-[9px] font-black">Status: Online</div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-8">
            {activeView === 'dashboard' && (
-             <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard title="Contratos" value={formatCurrency(summary.totalBudget)} icon={<DollarSign size={20}/>} />
-                <StatCard title="Recebido" value={formatCurrency(summary.totalRevenue)} icon={<TrendingUp size={20}/>} colorClass="bg-white border-l-4 border-emerald-400" />
-                <StatCard title="Saldo Comissões" value={formatCurrency(summary.commissionBalance)} icon={<Handshake size={20}/>} colorClass="bg-white border-l-4 border-indigo-500" />
-                <StatCard title="Lucro Projetado" value={formatCurrency(summary.forecastProfit)} icon={<BarChart3 size={20}/>} colorClass="bg-slate-900 text-white border-none" />
+             <div className="max-w-7xl mx-auto space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                   <StatCard title="Contratos" value={formatCurrency(summary.totalBudget)} icon={<DollarSign size={20}/>} />
+                   <StatCard title="Recebido" value={formatCurrency(summary.totalRevenue)} icon={<TrendingUp size={20}/>} colorClass="bg-white border-l-4 border-emerald-400" />
+                   <StatCard title="Saldo Comissões" value={formatCurrency(summary.commissionBalance)} icon={<Handshake size={20}/>} colorClass="bg-white border-l-4 border-indigo-500" />
+                   <StatCard title="Lucro Projetado" value={formatCurrency(summary.forecastProfit)} icon={<BarChart3 size={20}/>} colorClass="bg-slate-900 text-white border-none" />
+                </div>
              </div>
            )}
 
@@ -372,16 +342,16 @@ const App: React.FC = () => {
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {projects.map(p => (
                       <div key={p.id} className="bg-white rounded-[2rem] border border-slate-200 p-8 shadow-sm hover:border-blue-200 transition-all">
-                         <h4 className="font-black text-lg text-slate-900 truncate mb-1">{p.name}</h4>
-                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{p.client}</p>
-                         <div className="mt-4 space-y-2 bg-slate-50 p-4 rounded-2xl">
-                            <div className="flex justify-between text-[10px] font-black uppercase"><span>Contrato</span><span>{formatCurrency(p.budget)}</span></div>
-                            <div className="flex justify-between text-[10px] font-black uppercase text-emerald-600"><span>Pago</span><span>{formatCurrency(p.revenues.reduce((s,r)=>s+r.amount,0))}</span></div>
+                         <h4 className="font-black text-lg text-slate-900 truncate mb-1 uppercase tracking-tight">{p.name}</h4>
+                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">{p.client}</p>
+                         <div className="space-y-2 bg-slate-50 p-4 rounded-2xl">
+                            <div className="flex justify-between text-[10px] font-black uppercase"><span>Contrato</span><span className="text-slate-900">{formatCurrency(p.budget)}</span></div>
+                            <div className="flex justify-between text-[10px] font-black uppercase text-emerald-600"><span>Med. Pago</span><span>{formatCurrency(p.revenues.reduce((s,r)=>s+r.amount,0))}</span></div>
                          </div>
-                         <div className="mt-4 grid grid-cols-3 gap-2">
-                            <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'expense' })} className="py-2 bg-slate-900 text-white rounded-xl text-[8px] font-black uppercase">Saída</button>
-                            <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_planned' })} className="py-2 bg-blue-600 text-white rounded-xl text-[8px] font-black uppercase">Prevista</button>
-                            <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_paid' })} className="py-2 bg-emerald-600 text-white rounded-xl text-[8px] font-black uppercase">Paga</button>
+                         <div className="mt-6 grid grid-cols-3 gap-2">
+                            <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'expense' })} className="py-2.5 bg-slate-900 text-white rounded-xl text-[8px] font-black uppercase tracking-widest">Saída</button>
+                            <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_planned' })} className="py-2.5 bg-blue-600 text-white rounded-xl text-[8px] font-black uppercase tracking-widest">Prevista</button>
+                            <button onClick={() => setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_paid' })} className="py-2.5 bg-emerald-600 text-white rounded-xl text-[8px] font-black uppercase tracking-widest">Paga</button>
                          </div>
                       </div>
                     ))}
@@ -389,7 +359,7 @@ const App: React.FC = () => {
                 ) : (
                   <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
                     <table className="w-full text-left">
-                       <thead className="bg-slate-50 text-[10px] font-black uppercase border-b">
+                       <thead className="bg-slate-900 text-white text-[10px] font-black uppercase">
                           <tr>
                              <th className="px-8 py-5">Lançamento</th>
                              <th className="px-8 py-5">Vencimento</th>
@@ -399,18 +369,18 @@ const App: React.FC = () => {
                              <th className="px-8 py-5 text-center">Ações</th>
                           </tr>
                        </thead>
-                       <tbody className="divide-y divide-slate-50">
+                       <tbody className="divide-y divide-slate-100">
                           {allTransactions.map(t => (
                              <tr key={t.id} className="hover:bg-slate-50/50">
                                 <td className="px-8 py-4 text-[10px] font-black text-blue-600">{t.createdAt ? new Date(t.createdAt).toLocaleString('pt-BR') : '-'}</td>
                                 <td className="px-8 py-4 text-xs font-bold text-slate-500">{new Date(t.date).toLocaleDateString('pt-BR')}</td>
-                                <td className="px-8 py-4"><span className={`px-2 py-1 rounded text-[9px] font-black uppercase border ${t.color === 'rose' ? 'bg-rose-50 text-rose-600' : t.color === 'emerald' ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'}`}>{t.type}</span></td>
-                                <td className="px-8 py-4 text-xs font-black uppercase">{t.projectName}</td>
-                                <td className={`px-8 py-4 text-right font-black ${t.color === 'rose' ? 'text-rose-600' : 'text-slate-900'}`}>{formatCurrency(t.amount)}</td>
+                                <td className="px-8 py-4"><span className={`px-2 py-1 rounded text-[9px] font-black uppercase border ${t.color === 'rose' ? 'bg-rose-50 text-rose-600 border-rose-100' : t.color === 'emerald' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>{t.type}</span></td>
+                                <td className="px-8 py-4 text-xs font-black uppercase text-slate-900">{t.projectName}</td>
+                                <td className={`px-8 py-4 text-right font-black ${t.color === 'rose' ? 'text-rose-600' : t.color === 'emerald' ? 'text-emerald-600' : 'text-blue-600'}`}>{formatCurrency(t.amount)}</td>
                                 <td className="px-8 py-4 text-center">
                                    <div className="flex items-center justify-center gap-1">
-                                      {t.type === 'Receita Prevista' && <button onClick={() => handleMarkAsPaid(t.projectId, t.rawData)} className="p-2 text-emerald-500"><CheckCircle2 size={18} /></button>}
-                                      <button onClick={() => deleteTransaction(t.projectId, t.id, t.type)} className="p-2 text-slate-300 hover:text-rose-500"><Trash2 size={16} /></button>
+                                      {t.type === 'Receita Prevista' && <button onClick={() => handleMarkAsPaid(t.projectId, t.rawData)} className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-lg"><CheckCircle2 size={18} /></button>}
+                                      <button onClick={() => deleteTransaction(t.projectId, t.id, t.type)} className="p-2 text-slate-300 hover:text-rose-500 rounded-lg"><Trash2 size={16} /></button>
                                    </div>
                                 </td>
                              </tr>
@@ -423,46 +393,76 @@ const App: React.FC = () => {
            )}
 
            {activeView === 'forecast' && (
-             <div className="max-w-7xl mx-auto bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
-                <div className="p-8 bg-slate-900 text-white flex justify-between items-center">
-                   <h3 className="text-xl font-black uppercase">Relatório Estratégico</h3>
-                   <Handshake size={24} className="text-emerald-400" />
-                </div>
-                <table className="w-full text-left">
-                   <thead className="bg-slate-50 text-[10px] font-black uppercase border-b">
-                      <tr>
-                         <th className="px-8 py-5">Obra</th>
-                         <th className="px-8 py-5 text-right">Comissão Pagas</th>
-                         <th className="px-8 py-5 text-right">Medições Previstas</th>
-                         <th className="px-8 py-5 text-right">Saldo a Pagar</th>
-                      </tr>
-                   </thead>
-                   <tbody>
-                      {projects.map(p => {
-                         const revPaid = p.revenues.reduce((s,r)=>s+r.amount,0);
-                         const taxF = (1 - settings.taxRate / 100);
-                         const commF = settings.commissionRate / 100;
-                         const revPl = p.plannedRevenues?.reduce((s,r)=>s+r.amount,0) || 0;
-                         const commPaid = p.expenses.filter(e => e.category === 'Comissão').reduce((s,e)=>s+e.amount, 0);
-                         const bal = ((revPaid + revPl) * taxF * commF) - commPaid;
-                         return (
-                            <tr key={p.id} className="border-b">
-                               <td className="px-8 py-6 font-black">{p.name}</td>
-                               <td className="px-8 py-6 text-right font-bold text-emerald-500">{formatCurrency(revPaid * taxF * commF)}</td>
-                               <td className="px-8 py-6 text-right font-bold text-blue-500">{formatCurrency(revPl)}</td>
-                               <td className="px-8 py-6 text-right font-black text-indigo-600">{formatCurrency(bal)}</td>
-                            </tr>
-                         )
-                      })}
-                   </tbody>
-                </table>
+             <div className="max-w-7xl mx-auto space-y-6">
+               <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
+                  <div className="p-8 bg-slate-900 text-white flex justify-between items-center">
+                     <div>
+                        <h3 className="text-xl font-black uppercase tracking-tighter">Projeção Estratégica por Obra</h3>
+                        <p className="text-blue-400 text-[9px] font-black uppercase mt-1 tracking-widest">Base de Cálculo: Impostos {settings.taxRate}% | Comissão {settings.commissionRate}%</p>
+                     </div>
+                     <Handshake size={32} className="text-blue-400 opacity-50" />
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-[10px]">
+                       <thead className="bg-slate-50 font-black uppercase border-b text-slate-400">
+                          <tr>
+                             <th className="px-4 py-5">Obra</th>
+                             <th className="px-4 py-5 text-right">Valor Global</th>
+                             <th className="px-4 py-5 text-right font-black text-slate-700">Custo Real</th>
+                             <th className="px-4 py-5 text-right">Med. Paga</th>
+                             <th className="px-4 py-5 text-right text-rose-500">Imposto Pago</th>
+                             <th className="px-4 py-5 text-right">Med. Prevista</th>
+                             <th className="px-4 py-5 text-right">Comis. Paga</th>
+                             <th className="px-4 py-5 text-right">Comis. Prevista</th>
+                             <th className="px-4 py-5 text-right bg-slate-100/50">Lucro Previsto</th>
+                          </tr>
+                       </thead>
+                       <tbody className="divide-y divide-slate-100">
+                          {projects.map(p => {
+                             const taxFactor = settings.taxRate / 100;
+                             const commFactor = settings.commissionRate / 100;
+                             
+                             const custoDaObra = p.expenses.reduce((s,e)=>s+e.amount,0);
+                             const medPaga = p.revenues.reduce((s,r)=>s+r.amount,0);
+                             const impostoPago = medPaga * taxFactor;
+                             const medPrev = p.plannedRevenues?.reduce((s,r)=>s+r.amount,0) || 0;
+                             
+                             const comisPaga = p.expenses.filter(e => e.category === 'Comissão').reduce((s,e)=>s+e.amount, 0);
+                             const totalComisDevida = (p.budget * (1 - taxFactor)) * commFactor;
+                             const comisRestante = Math.max(0, totalComisDevida - comisPaga);
+                             
+                             const impostosTotalBudget = p.budget * taxFactor;
+                             const gastosOperacionais = p.expenses.filter(e => e.category !== 'Comissão' && e.category !== 'Impostos').reduce((s,e)=>s+e.amount,0);
+                             
+                             const lucroProjetado = p.budget - impostosTotalBudget - totalComisDevida - gastosOperacionais;
+
+                             return (
+                                <tr key={p.id} className="hover:bg-blue-50/20 transition-colors">
+                                   <td className="px-4 py-6 font-black text-slate-900 uppercase">{p.name}</td>
+                                   <td className="px-4 py-6 text-right font-bold text-slate-400">{formatCurrency(p.budget)}</td>
+                                   <td className="px-4 py-6 text-right font-black text-slate-700">{formatCurrency(custoDaObra)}</td>
+                                   <td className="px-4 py-6 text-right font-bold text-emerald-600">{formatCurrency(medPaga)}</td>
+                                   <td className="px-4 py-6 text-right font-bold text-rose-500">{formatCurrency(impostoPago)}</td>
+                                   <td className="px-4 py-6 text-right font-bold text-blue-600">{formatCurrency(medPrev)}</td>
+                                   <td className="px-4 py-6 text-right font-bold text-rose-500">{formatCurrency(comisPaga)}</td>
+                                   <td className="px-4 py-6 text-right font-bold text-orange-500">{formatCurrency(comisRestante)}</td>
+                                   <td className="px-4 py-6 text-right font-black text-indigo-600 bg-indigo-50/20">{formatCurrency(lucroProjetado)}</td>
+                                </tr>
+                             )
+                          })}
+                       </tbody>
+                    </table>
+                  </div>
+               </div>
              </div>
            )}
 
            {activeView === 'ai' && (
-             <div className="max-w-4xl mx-auto p-12 bg-white rounded-[3rem] border border-slate-200 shadow-xl mt-10">
-                <h3 className="text-2xl font-black uppercase mb-6 flex items-center gap-3"><BrainCircuit className="text-blue-600" /> Auditoria Inteligente</h3>
-                <div className="text-slate-700 whitespace-pre-wrap leading-relaxed">{aiAnalysis || 'Nenhuma análise gerada.'}</div>
+             <div className="max-w-4xl mx-auto p-12 bg-white rounded-[3rem] border border-slate-200 shadow-xl mt-4">
+                <h3 className="text-2xl font-black uppercase mb-6 flex items-center gap-3 tracking-tighter"><BrainCircuit className="text-blue-600" /> Auditoria Inteligente</h3>
+                <div className="text-slate-700 whitespace-pre-wrap leading-relaxed font-medium prose prose-slate max-w-none">
+                  {aiAnalysis || <div className="flex items-center gap-4 animate-pulse"><Loader2 className="animate-spin" /> Gerando relatório...</div>}
+                </div>
              </div>
            )}
         </div>
@@ -528,8 +528,8 @@ const App: React.FC = () => {
       {/* Modal Genérico Transação */}
       {genericTransaction.isOpen && (
          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-6">
-            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-               <div className={`p-8 text-white flex justify-between items-center ${genericTransaction.type === 'expense' ? 'bg-slate-900' : 'bg-emerald-600'}`}>
+            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-md overflow-hidden animate-in zoom-in-95 duration-200">
+               <div className={`p-8 text-white flex justify-between items-center ${genericTransaction.type === 'expense' ? 'bg-slate-900' : genericTransaction.type === 'revenue_paid' ? 'bg-emerald-600' : 'bg-blue-600'}`}>
                   <h3 className="text-xl font-black uppercase tracking-widest">Novo Lançamento</h3>
                   <button onClick={() => { setGenericTransaction({ isOpen: false, projectId: null, type: 'expense' }); resetFormFields(); }} className="p-2 hover:bg-white/10 rounded-full"><X size={24} /></button>
                </div>
@@ -546,17 +546,33 @@ const App: React.FC = () => {
                   setGenericTransaction({ isOpen: false, projectId: null, type: 'expense' });
                   resetFormFields(); 
                }} className="p-10 space-y-6">
-                  <input required value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Descrição" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" />
+                  <div className="space-y-1">
+                     <label className="text-[10px] font-black text-slate-400 uppercase">Descrição</label>
+                     <input required value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Ex: Medição Nov/2025" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" />
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
-                     <input required type="number" step="0.01" value={formAmount} onChange={e => setFormAmount(e.target.value)} placeholder="Valor R$" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none" />
-                     <input required type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" />
+                     <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-400 uppercase">Valor R$</label>
+                        <input required type="number" step="0.01" value={formAmount} onChange={e => setFormAmount(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none" />
+                     </div>
+                     <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-400 uppercase">Data</label>
+                        <input required type="date" value={formDate} onChange={e => setFormDate(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" />
+                     </div>
                   </div>
                   {genericTransaction.type === 'expense' && (
-                    <select value={formCategory} onChange={e => setFormCategory(e.target.value as ExpenseCategory)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none">
-                      <option value="Material">Material</option><option value="Mão de Obra">Mão de Obra</option><option value="Comissão">Comissão</option><option value="Impostos">Impostos</option>
-                    </select>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase">Categoria</label>
+                      <select value={formCategory} onChange={e => setFormCategory(e.target.value as ExpenseCategory)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none">
+                        <option value="Material">Material</option>
+                        <option value="Mão de Obra">Mão de Obra</option>
+                        <option value="Comissão">Comissão</option>
+                        <option value="Impostos">Impostos</option>
+                        <option value="Outros">Outros</option>
+                      </select>
+                    </div>
                   )}
-                  <button type="submit" className="w-full py-5 bg-slate-900 text-white font-black rounded-2xl uppercase">Confirmar</button>
+                  <button type="submit" className="w-full py-5 bg-slate-900 text-white font-black rounded-2xl uppercase shadow-lg">Confirmar Lançamento</button>
                </form>
             </div>
          </div>
