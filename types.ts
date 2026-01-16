@@ -1,5 +1,5 @@
 
-export type ExpenseCategory = 'Material' | 'Mão de Obra' | 'Logística' | 'Equipamentos' | 'Impostos' | 'Serviços Terceiros' | 'Comissão' | 'Outros';
+export type ExpenseCategory = 'Material' | 'Mão de Obra' | 'Serviços de Terceiros' | 'Outras Despesas' | 'Logística' | 'Equipamentos' | 'Impostos' | 'Comissão' | 'Outros';
 export type UserRole = 'admin' | 'engenheiro' | 'financeiro' | 'visitante';
 
 export interface User {
