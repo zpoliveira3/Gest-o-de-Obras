@@ -2,10 +2,15 @@
 import { GoogleGenAI } from "@google/genai";
 import { Project } from "../types";
 
-// Removed global initialization to ensure the function always uses the most up-to-date environment config
 export async function analyzeFinancials(projects: Project[]): Promise<string> {
-  // Always use the recommended initialization with named parameter and create a new instance before call
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Acessa a chave através de uma conversão de tipo para evitar erro no build do TypeScript
+  const apiKey = (process.env as any).API_KEY;
+  
+  if (!apiKey) {
+    return "Atenção: A variável API_KEY não foi encontrada nas configurações da Vercel. A análise inteligente está desativada.";
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
 
   const dataSummary = projects.map(p => ({
     nome: p.name,
@@ -31,7 +36,6 @@ export async function analyzeFinancials(projects: Project[]): Promise<string> {
   `;
 
   try {
-    // Using gemini-3-pro-preview for complex reasoning and financial analysis tasks
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
       contents: prompt,
@@ -40,10 +44,9 @@ export async function analyzeFinancials(projects: Project[]): Promise<string> {
       }
     });
     
-    // Correctly accessing the .text property from GenerateContentResponse
     return response.text || "Não foi possível gerar a análise no momento.";
   } catch (error) {
     console.error("Erro na análise Gemini:", error);
-    return "Erro ao conectar com a inteligência artificial para análise financeira. Verifique sua conexão e tente novamente.";
+    return "Erro ao conectar com a inteligência artificial. Verifique se a API_KEY está correta e se o projeto possui faturamento ativo no Google Cloud.";
   }
 }
