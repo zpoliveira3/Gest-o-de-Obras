@@ -1,15 +1,14 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Project, ExpenseCategory } from "../types";
+import { Project } from "../types";
 
-const apiKey = (process.env as any).API_KEY;
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+// Inicialização segura com a chave de ambiente
+const ai = new GoogleGenAI({ apiKey: (process.env as any).API_KEY });
 
+/**
+ * Analisa a saúde financeira geral dos projetos
+ */
 export async function analyzeFinancials(projects: Project[]): Promise<string> {
-  if (!ai) {
-    return "Atenção: A variável API_KEY não foi encontrada. A análise inteligente está desativada.";
-  }
-
   const dataSummary = projects.map(p => ({
     nome: p.name,
     valor_obra: p.budget,
@@ -25,66 +24,64 @@ export async function analyzeFinancials(projects: Project[]): Promise<string> {
     Como um consultor financeiro especializado em construção civil e obras públicas no Brasil, analise os seguintes dados da minha empreiteira:
     ${JSON.stringify(dataSummary, null, 2)}
 
-    Por favor, forneça:
-    1. Uma análise rápida da saúde financeira geral considerando o Valor da Obra vs Gastos.
-    2. Identificação de gargalos (onde estou gastando demais?).
-    3. Sugestões práticas para aumentar a margem de lucro.
-    4. Alertas sobre projetos que podem estar saindo do valor contratado.
-    Responda de forma profissional e direta em Português do Brasil, formatado em Markdown.
+    Por favor, forneça uma análise profissional e direta em Português do Brasil, formatada em Markdown, focando em lucratividade e controle de custos.
   `;
 
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: prompt,
+      contents: [{ parts: [{ text: prompt }] }],
     });
     
     return response.text || "Não foi possível gerar a análise no momento.";
   } catch (error) {
     console.error("Erro na análise Gemini:", error);
-    return "Erro ao conectar com a inteligência artificial.";
+    return "Erro ao conectar com a inteligência artificial para auditoria.";
   }
 }
 
+/**
+ * Extrai dados financeiros de PDFs ou Imagens de medições/contratos
+ */
 export async function analyzeProjectDocument(base64Data: string, mimeType: string): Promise<Partial<Project> | null> {
-  if (!ai) return null;
-
-  const cleanBase64 = base64Data.split(',')[1] || base64Data;
+  // Limpa o prefixo data:mime/type;base64, se existir
+  const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: [
-        {
-          inlineData: {
-            mimeType: mimeType,
-            data: cleanBase64,
-          },
-        },
-        {
-          text: `Você é um especialista em auditoria de obras. Analise este documento (PDF ou Imagem) e extraia todos os dados financeiros.
-          Procure por:
-          - Nome da Obra ou Local
-          - Cliente (Órgão Público ou Empresa)
-          - Valor Total do Contrato (Budget)
-          - Data de Início ou data do documento
-          - Itens de Despesa (Gastos com material, pessoal, impostos)
-          - Itens de Receita/Medição (O que já foi pago ou o que está previsto)
-          
-          IMPORTANTE: Se encontrar uma lista de gastos, mapeie cada um para uma destas categorias: 'Material', 'Mão de Obra', 'Logística', 'Equipamentos', 'Impostos', 'Serviços Terceiros', 'Comissão', 'Outros'.
-          
-          Retorne ESTRITAMENTE um JSON no formato:
+      model: "gemini-3-pro-preview", // Modelo Pro para extração de dados complexos em tabelas
+      contents: {
+        parts: [
           {
-            "name": string,
-            "client": string,
-            "budget": number,
-            "startDate": "YYYY-MM-DD",
-            "revenues": [{"description": string, "amount": number, "date": "YYYY-MM-DD"}],
-            "plannedRevenues": [{"description": string, "amount": number, "date": "YYYY-MM-DD"}],
-            "expenses": [{"description": string, "amount": number, "date": "YYYY-MM-DD", "category": string}]
-          }`
-        }
-      ],
+            inlineData: {
+              mimeType: mimeType,
+              data: cleanBase64,
+            },
+          },
+          {
+            text: `Você é um especialista em auditoria de obras. Analise este documento e extraia os dados financeiros para um sistema ERP.
+            
+            Campos obrigatórios:
+            - Nome da Obra
+            - Cliente (Órgão Público ou Empresa)
+            - Valor Total do Contrato (Budget)
+            - Data de Início (YYYY-MM-DD)
+            - Lista de Gastos/Despesas (mapeie para: 'Material', 'Mão de Obra', 'Logística', 'Equipamentos', 'Impostos', 'Serviços Terceiros', 'Comissão', 'Outros')
+            - Lista de Receitas/Medições (pagas ou previstas)
+            
+            Retorne APENAS o JSON puro seguindo exatamente esta estrutura:
+            {
+              "name": string,
+              "client": string,
+              "budget": number,
+              "startDate": "YYYY-MM-DD",
+              "revenues": [{"description": string, "amount": number, "date": "YYYY-MM-DD"}],
+              "plannedRevenues": [{"description": string, "amount": number, "date": "YYYY-MM-DD"}],
+              "expenses": [{"description": string, "amount": number, "date": "YYYY-MM-DD", "category": string}]
+            }`
+          }
+        ]
+      },
       config: {
         responseMimeType: "application/json"
       }
@@ -92,9 +89,12 @@ export async function analyzeProjectDocument(base64Data: string, mimeType: strin
 
     const text = response.text;
     if (!text) return null;
-    return JSON.parse(text);
+
+    // Remove possíveis blocos de código Markdown que o modelo possa ter inserido
+    const jsonString = text.replace(/```json|```/gi, "").trim();
+    return JSON.parse(jsonString);
   } catch (error) {
-    console.error("Erro ao analisar documento de projeto:", error);
+    console.error("Erro crítico ao analisar documento:", error);
     return null;
   }
 }
