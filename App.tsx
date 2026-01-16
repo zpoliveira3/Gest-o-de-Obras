@@ -49,11 +49,13 @@ import {
   Filter,
   ListOrdered,
   FileSearch,
-  Image as ImageIcon,
+  ImageIcon,
   Loader2,
   Sparkles,
   Save,
-  Receipt
+  Receipt,
+  Handshake,
+  CheckCircle2
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -94,7 +96,6 @@ const App: React.FC = () => {
   const [tempAttachment, setTempAttachment] = useState<Attachment | null>(null);
   const [isReadingInvoice, setIsReadingInvoice] = useState(false);
 
-  // Estados do formulário do modal
   const [formDescription, setFormDescription] = useState('');
   const [formAmount, setFormAmount] = useState<string>('');
   const [formDate, setFormDate] = useState(new Date().toISOString().split('T')[0]);
@@ -110,15 +111,55 @@ const App: React.FC = () => {
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+  const resetFormFields = () => {
+    setFormDescription('');
+    setFormAmount('');
+    setFormDate(new Date().toISOString().split('T')[0]);
+    setFormCategory('Material');
+    setTempAttachment(null);
+    setIsReadingInvoice(false);
+  };
+
   useEffect(() => {
     if (auth.isLoggedIn) {
       setSync(prev => ({ ...prev, state: 'syncing' }));
       const storageKey = `gestao_obras_data_${auth.companyKey}`;
       const saved = localStorage.getItem(storageKey);
-      setTimeout(() => {
-        setProjects(saved ? JSON.parse(saved) : []);
-        setSync({ lastSync: new Date(), state: 'synced' });
-      }, 600);
+      
+      if (saved) {
+        setProjects(JSON.parse(saved));
+      } else {
+        // SIMULAÇÃO BASEADA NO PDF ANEXO
+        const simulatedProject: Project = {
+          id: 'sim-pdf-2025',
+          name: 'Reforma Central 2025 (Simulação PDF)',
+          client: 'Secretaria Municipal de Obras',
+          budget: 523102.69,
+          startDate: '2025-09-03',
+          status: 'Em Execução',
+          revenues: [
+            { id: 'rev-1', description: 'Medição Setembro/2025', amount: 32746.75, date: '2025-11-18' },
+            { id: 'rev-2', description: 'Medição Outubro/2025', amount: 120104.41, date: '2026-01-08' }
+          ],
+          plannedRevenues: [
+            { id: 'prev-1', description: 'Previsão Novembro/2025', amount: 307892.53, date: '2025-11-30' },
+            { id: 'prev-2', description: 'Previsão Dezembro/2025', amount: 62359.00, date: '2025-12-31' }
+          ],
+          expenses: [
+            { id: 'e-1', description: 'Mão de Obra Setembro', amount: 27581.00, date: '2025-09-30', category: 'Mão de Obra' },
+            { id: 'e-2', description: 'Materiais Setembro', amount: 33026.60, date: '2025-09-30', category: 'Material' },
+            { id: 'e-3', description: 'Serviços Terceiros Setembro', amount: 1370.22, date: '2025-09-30', category: 'Serviços Terceiros' },
+            { id: 'e-4', description: 'ISS/Impostos Setembro', amount: 1964.80, date: '2025-09-30', category: 'Impostos' },
+            { id: 'e-5', description: 'Mão de Obra Outubro', amount: 37556.00, date: '2025-10-31', category: 'Mão de Obra' },
+            { id: 'e-6', description: 'Materiais Outubro', amount: 50132.61, date: '2025-10-31', category: 'Material' },
+            { id: 'e-7', description: 'Serviços Terceiros Outubro', amount: 1700.00, date: '2025-10-31', category: 'Serviços Terceiros' },
+            { id: 'e-8', description: 'ISS/Impostos Outubro', amount: 7206.26, date: '2025-10-31', category: 'Impostos' },
+          ]
+        };
+        setProjects([simulatedProject]);
+      }
+      
+      setTimeout(() => setSync({ lastSync: new Date(), state: 'synced' }), 600);
     }
   }, [auth.isLoggedIn, auth.companyKey]);
 
@@ -135,37 +176,32 @@ const App: React.FC = () => {
     localStorage.setItem('gestao_obras_auth_v1', JSON.stringify(auth));
   }, [auth]);
 
-  // Lógica de reset total do formulário
-  const resetFormFields = () => {
-    setFormDescription('');
-    setFormAmount('');
-    setFormDate(new Date().toISOString().split('T')[0]);
-    setFormCategory('Material');
-    setTempAttachment(null);
-  };
-
-  // Garante campos limpos ao abrir para novo lançamento
-  useEffect(() => {
-    if (genericTransaction.isOpen && !genericTransaction.transId) {
-      resetFormFields();
-    }
-  }, [genericTransaction.isOpen, genericTransaction.transId]);
-
   const summary = useMemo(() => {
     const totalBudget = projects.reduce((acc, p) => acc + p.budget, 0);
+    const totalRevenue = projects.reduce((acc, p) => acc + p.revenues.reduce((sum, r) => sum + r.amount, 0), 0);
     const totalPlanned = projects.reduce((acc, p) => acc + (p.plannedRevenues?.reduce((sum, r) => sum + r.amount, 0) || 0), 0);
     const totalExpenses = projects.reduce((acc, p) => acc + p.expenses.reduce((sum, e) => sum + e.amount, 0), 0);
-    const totalRevenue = projects.reduce((acc, p) => acc + p.revenues.reduce((sum, r) => sum + r.amount, 0), 0);
-    const netProfit = totalRevenue - totalExpenses;
-    const outstandingReceivables = totalBudget - totalRevenue;
     
-    const futureTaxes = Math.max(0, outstandingReceivables * (settings.taxRate / 100)); 
-    const futureCommissions = Math.max(0, (outstandingReceivables - futureTaxes) * (settings.commissionRate / 100)); 
-    const forecastProfit = totalBudget - totalExpenses - futureTaxes - futureCommissions;
+    const taxFactor = (1 - settings.taxRate / 100);
+    const commRateFactor = (settings.commissionRate / 100);
+
+    const totalCommissionsEarnedOnMedicao = totalRevenue * taxFactor * commRateFactor;
+    const totalCommissionsOnPlanned = totalPlanned * taxFactor * commRateFactor;
+    
+    const totalCommissionsPaid = projects.reduce((acc, p) => 
+      acc + p.expenses.filter(e => e.category === 'Comissão').reduce((sum, e) => sum + e.amount, 0), 0);
+    
+    const commissionBalance = totalCommissionsEarnedOnMedicao - totalCommissionsPaid;
+    
+    const outstandingReceivables = totalBudget - totalRevenue;
+    const futureTaxes = outstandingReceivables * (settings.taxRate / 100);
+    const futureCommissions = (outstandingReceivables - futureTaxes) * commRateFactor;
+    
+    const forecastProfit = totalBudget - totalExpenses - futureTaxes - (commissionBalance > 0 ? commissionBalance : 0) - futureCommissions;
 
     return { 
-      totalBudget, totalPlanned, totalExpenses, totalRevenue, 
-      netProfit, forecastProfit, outstandingReceivables, futureCommissions, futureTaxes 
+      totalBudget, totalRevenue, totalExpenses, totalCommissionsPaid, totalCommissionsEarnedOnMedicao,
+      forecastProfit, outstandingReceivables, commissionBalance, totalCommissionsOnPlanned, totalPlanned
     };
   }, [projects, settings]);
 
@@ -174,7 +210,7 @@ const App: React.FC = () => {
     projects.forEach(p => {
       p.expenses.forEach(e => list.push({ ...e, type: 'Saída', color: 'rose', projectName: p.name, projectId: p.id }));
       p.revenues.forEach(r => list.push({ ...r, type: 'Receita Paga', color: 'emerald', projectName: p.name, projectId: p.id }));
-      p.plannedRevenues?.forEach(pr => list.push({ ...pr, type: 'Receita Prevista', color: 'blue', projectName: p.name, projectId: p.id }));
+      p.plannedRevenues?.forEach(pr => list.push({ ...pr, type: 'Receita Prevista', color: 'blue', projectName: p.name, projectId: p.id, rawData: pr }));
     });
     return list
       .filter(t => 
@@ -192,18 +228,26 @@ const App: React.FC = () => {
     setAuth({ isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin' });
   };
 
+  const handleMarkAsPaid = (projectId: string, revenue: Revenue) => {
+    if(!confirm('Deseja confirmar o recebimento desta medição? Ela será movida para o campo PAGO.')) return;
+    
+    setProjects(prev => prev.map(p => {
+      if (p.id !== projectId) return p;
+      return {
+        ...p,
+        plannedRevenues: p.plannedRevenues?.filter(pr => pr.id !== revenue.id) || [],
+        revenues: [...p.revenues, { ...revenue, date: new Date().toISOString().split('T')[0] }]
+      };
+    }));
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64 = reader.result as string;
-        setTempAttachment({
-          name: file.name,
-          type: file.type,
-          data: base64
-        });
-
+        setTempAttachment({ name: file.name, type: file.type, data: base64 });
         if (genericTransaction.type === 'expense' && !genericTransaction.transId) {
           setIsReadingInvoice(true);
           try {
@@ -224,6 +268,7 @@ const App: React.FC = () => {
   };
 
   const handleEditTransaction = (t: any) => {
+    resetFormFields();
     setGenericTransaction({
       isOpen: true,
       projectId: t.projectId,
@@ -249,108 +294,17 @@ const App: React.FC = () => {
       if(p.id !== projectId) return p;
       if(type === 'Saída') return { ...p, expenses: p.expenses.filter(e => e.id !== transId) };
       if(type === 'Receita Paga') return { ...p, revenues: p.revenues.filter(r => r.id !== transId) };
-      if(type === 'Receita Prevista') return { ...p, plannedRevenues: p.plannedRevenues.filter(pr => pr.id !== transId) };
+      if(type === 'Receita Prevista') return { ...p, plannedRevenues: p.plannedRevenues?.filter(pr => pr.id !== transId) || [] };
       return p;
     }));
   };
-
-  const openAttachment = (attachment: Attachment) => {
-    const newWindow = window.open();
-    if (newWindow) {
-      newWindow.document.write(`<iframe src="${attachment.data}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
-      newWindow.document.title = attachment.name;
-    }
-  };
-
-  const handleExportData = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(projects));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `BACKUP_OBRAS_${auth.companyKey}.json`);
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-  };
-
-  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const json = JSON.parse(event.target?.result as string);
-          if (Array.isArray(json)) {
-            setProjects(json);
-            alert("Sincronização manual concluída com sucesso!");
-          }
-        } catch (err) {
-          alert("Erro ao ler o arquivo de backup.");
-        }
-      };
-      reader.readAsText(file);
-    }
-  };
-
-  if (!auth.isLoggedIn) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 relative overflow-hidden">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-30">
-           <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-900 rounded-full blur-[150px]"></div>
-        </div>
-        <div className="w-full max-w-lg relative z-10 animate-in fade-in zoom-in-95 duration-700">
-          <div className="text-center mb-10">
-            <div className="inline-flex items-center gap-4 mb-4">
-               <div className="p-5 bg-blue-600 rounded-[2.5rem] shadow-2xl rotate-12">
-                 <ShieldCheck size={48} className="text-white -rotate-12" />
-               </div>
-               <div className="text-left">
-                  <h1 className="text-3xl font-black text-white tracking-tighter leading-none">GESTÃO DE OBRAS</h1>
-                  <p className="text-blue-500 font-bold tracking-[0.2em] text-xs mt-1 uppercase">Sistema ERP Professional</p>
-               </div>
-            </div>
-          </div>
-          <div className="bg-slate-900/80 backdrop-blur-2xl border border-slate-800 p-10 rounded-[2rem] shadow-2xl">
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              const formData = new FormData(e.currentTarget);
-              setAuth({
-                isLoggedIn: true,
-                companyName: formData.get('companyName') as string,
-                companyKey: (formData.get('companyKey') as string).toUpperCase(),
-                userRole: 'admin'
-              });
-            }} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-2 ml-1">Sua Empresa</label>
-                  <input required name="companyName" type="text" placeholder="Nome da Empresa" className="w-full bg-slate-800/50 border border-slate-700 text-white px-4 py-4 rounded-2xl outline-none focus:border-blue-500 transition-all" />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-2 ml-1">Chave ERP</label>
-                  <input required name="companyKey" type="text" placeholder="CHAVE-UNICA" className="w-full bg-slate-800/50 border border-slate-700 text-white px-4 py-4 rounded-2xl outline-none focus:border-blue-500 transition-all uppercase" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase mb-2 ml-1">Senha de Acesso</label>
-                <input required name="password" type="password" placeholder="••••••••" className="w-full bg-slate-800/50 border border-slate-700 text-white px-4 py-4 rounded-2xl outline-none focus:border-blue-500 transition-all" />
-              </div>
-              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white py-5 rounded-2xl font-black shadow-xl transition-all flex items-center justify-center gap-3">
-                <Monitor size={20} /> Acessar Sistema
-              </button>
-            </form>
-          </div>
-          <p className="text-center text-slate-600 text-[10px] font-bold mt-8 uppercase tracking-widest">Atenção: Use a mesma chave para sincronizar dispositivos</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="h-screen flex flex-col md:flex-row bg-slate-100 overflow-hidden">
       <aside className="w-full md:w-64 bg-slate-900 text-white flex flex-col shrink-0 z-20 shadow-2xl">
         <div className="p-6 border-b border-slate-800/50 flex items-center gap-3">
           <div className="p-2 bg-blue-600 rounded-xl"><ShieldCheck size={24} /></div>
-          <div><h1 className="text-sm font-black tracking-tighter leading-tight uppercase">Gestão de Obras</h1><p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest">ERP Central</p></div>
+          <div><h1 className="text-sm font-black tracking-tighter leading-tight uppercase">Gestão Obras</h1><p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest">Controle Central</p></div>
         </div>
         <nav className="p-4 space-y-1 flex-1">
           <button onClick={() => setActiveView('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all font-bold text-sm ${activeView === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><LayoutDashboard size={18} /> Dashboard</button>
@@ -370,11 +324,6 @@ const App: React.FC = () => {
           }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all font-bold text-sm ${activeView === 'ai' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><BrainCircuit size={18} /> Auditor IA</button>
         </nav>
         <div className="p-4 bg-slate-950/50 border-t border-slate-800 space-y-2">
-           <button onClick={handleExportData} className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800 text-[10px] font-bold uppercase"><Download size={14} /> Exportar Backup</button>
-           <label className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800 text-[10px] font-bold uppercase cursor-pointer">
-              <Upload size={14} /> Importar Backup
-              <input type="file" accept=".json" onChange={handleImportData} className="hidden" />
-           </label>
            <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-rose-400 hover:bg-rose-500/10 transition-all font-bold text-xs uppercase mt-2"><LogOut size={16} /> Sair</button>
         </div>
       </aside>
@@ -386,33 +335,19 @@ const App: React.FC = () => {
                activeView === 'projects' ? 'Gestão de Ativos' : 
                activeView === 'forecast' ? 'Análise de Margem' : 'Auditoria Inteligente'}
            </h2>
-           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase ${sync.state === 'synced' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
-              <Cloud size={14} /> {sync.state === 'synced' ? 'Status: Conectado' : 'Sincronizando...'}
+           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase bg-emerald-50 text-emerald-600 border-emerald-100">
+              <Cloud size={14} /> Status: Conectado
            </div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-8">
            {activeView === 'dashboard' && (
              <div className="max-w-7xl mx-auto space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                    <StatCard title="Total Contratos" value={formatCurrency(summary.totalBudget)} icon={<DollarSign size={20}/>} />
-                   <StatCard title="Receita Prevista" value={formatCurrency(summary.totalPlanned)} icon={<CalendarClock size={20}/>} colorClass="bg-white border-l-4 border-blue-400" />
-                   <StatCard title="Receita Paga" value={formatCurrency(summary.totalRevenue)} icon={<TrendingUp size={20}/>} colorClass="bg-white border-l-4 border-emerald-400" />
-                   <StatCard title="Gastos Totais" value={formatCurrency(summary.totalExpenses)} icon={<Wallet size={20}/>} colorClass="bg-white border-l-4 border-rose-500" />
-                </div>
-                <div className="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
-                   <h3 className="font-black text-slate-800 uppercase text-xs mb-6 tracking-widest">Contratos por Projeto</h3>
-                   <div className="h-[300px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                         <BarChart data={projects}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700}} />
-                            <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10}} />
-                            <Tooltip cursor={{fill: 'rgba(241, 245, 249, 0.5)'}} formatter={(val: number) => formatCurrency(val)} />
-                            <Bar dataKey="budget" name="Valor Contratado" fill="#2563eb" radius={[6, 6, 0, 0]} />
-                         </BarChart>
-                      </ResponsiveContainer>
-                   </div>
+                   <StatCard title="Medições Pagas" value={formatCurrency(summary.totalRevenue)} icon={<TrendingUp size={20}/>} colorClass="bg-white border-l-4 border-emerald-400" />
+                   <StatCard title="Saldo Comissões" value={formatCurrency(summary.commissionBalance)} icon={<Handshake size={20}/>} colorClass={summary.commissionBalance > 0 ? "bg-white border-l-4 border-indigo-500" : "bg-white border-l-4 border-slate-200"} />
+                   <StatCard title="Lucro Projetado" value={formatCurrency(summary.forecastProfit)} icon={<BarChart3 size={20}/>} colorClass="bg-slate-900 text-white border-none" />
                 </div>
              </div>
            )}
@@ -420,105 +355,46 @@ const App: React.FC = () => {
            {activeView === 'projects' && (
              <div className="max-w-7xl mx-auto space-y-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                   <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Painel Operacional</h3>
+                   <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Gestão Operacional</h3>
                    <div className="flex bg-slate-200 p-1.5 rounded-2xl gap-1">
-                      <button onClick={() => setProjectsSubView('cards')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${projectsSubView === 'cards' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                        <Building2 size={14} /> Cards das Obras
-                      </button>
-                      <button onClick={() => setProjectsSubView('history')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 ${projectsSubView === 'history' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                        <ListOrdered size={14} /> Extrato de Lançamentos
-                      </button>
+                      <button onClick={() => setProjectsSubView('cards')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${projectsSubView === 'cards' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Cards Obras</button>
+                      <button onClick={() => setProjectsSubView('history')} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${projectsSubView === 'history' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Extrato Geral</button>
                    </div>
-                   <button onClick={() => { setEditingProjectId(null); setIsAddingProject(true); }} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl flex items-center gap-2 font-black shadow-lg uppercase text-xs transition-all active:scale-95"><Plus size={18} /> Nova Obra</button>
+                   <button onClick={() => { setEditingProjectId(null); resetFormFields(); setIsAddingProject(true); }} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl flex items-center gap-2 font-black shadow-lg uppercase text-xs transition-all"><Plus size={18} /> Nova Obra</button>
                 </div>
 
                 {projectsSubView === 'cards' ? (
                   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 animate-in fade-in duration-300">
-                    {projects.length > 0 ? projects.map(p => {
-                        const costs = p.expenses.reduce((acc, e) => acc + e.amount, 0);
-                        const revPaid = p.revenues.reduce((acc, r) => acc + r.amount, 0);
-                        const revPlanned = p.plannedRevenues?.reduce((acc, r) => acc + r.amount, 0) || 0;
-                        
-                        return (
-                          <div key={p.id} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-blue-200 transition-all">
-                             <div className="p-8 flex-1">
-                                <div className="flex justify-between items-start">
-                                   <div>
-                                      <h4 className="font-black text-lg text-slate-900 truncate mb-1">{p.name}</h4>
-                                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{p.client}</p>
-                                   </div>
-                                   <div className="flex items-center gap-2">
-                                      <button onClick={() => handleEditProject(p)} className="p-2 text-slate-300 hover:text-blue-500 transition-colors"><Edit2 size={16} /></button>
-                                      <button onClick={() => {
-                                         if(confirm('Deseja excluir esta obra permanentemente?')) {
-                                            setProjects(prev => prev.filter(proj => proj.id !== p.id));
-                                         }
-                                      }} className="p-2 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={16} /></button>
-                                   </div>
-                                </div>
-                                
-                                <div className="mt-6 p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
-                                   <div className="flex justify-between items-center">
-                                      <span className="text-[10px] font-black text-slate-400 uppercase">Contrato Global</span>
-                                      <span className="text-xs font-black text-slate-900">{formatCurrency(p.budget)}</span>
-                                   </div>
-                                   <div className="flex justify-between items-center">
-                                      <span className="text-[10px] font-black text-blue-400 uppercase">Total Previsto</span>
-                                      <span className="text-xs font-black text-blue-600">{formatCurrency(revPlanned)}</span>
-                                   </div>
-                                   <div className="flex justify-between items-center">
-                                      <span className="text-[10px] font-black text-emerald-400 uppercase">Total Pago (Real)</span>
-                                      <span className="text-xs font-black text-emerald-600">{formatCurrency(revPaid)}</span>
-                                   </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 gap-3 mt-4">
-                                   <div className="p-3 bg-rose-50 text-center rounded-xl border border-rose-100 flex justify-between items-center px-4">
-                                      <p className="text-[9px] font-black text-rose-400 uppercase">Total de Saídas</p>
-                                      <p className="font-black text-rose-600 text-xs">{formatCurrency(costs)}</p>
-                                   </div>
-                                </div>
-                             </div>
-                             <div className="bg-slate-50 p-4 border-t border-slate-100 grid grid-cols-3 gap-2">
-                                <button onClick={() => { setGenericTransaction({ isOpen: true, projectId: p.id, type: 'expense', transId: null }); resetFormFields(); }} className="py-2.5 bg-slate-900 text-white rounded-xl text-[8px] font-black uppercase hover:bg-slate-800 transition-colors leading-tight">Lançar<br/>Saída</button>
-                                <button onClick={() => { setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_planned', transId: null }); resetFormFields(); }} className="py-2.5 bg-blue-600 text-white rounded-xl text-[8px] font-black uppercase hover:bg-blue-500 transition-colors leading-tight">Receita<br/>Prevista</button>
-                                <button onClick={() => { setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_paid', transId: null }); resetFormFields(); }} className="py-2.5 bg-emerald-600 text-white rounded-xl text-[8px] font-black uppercase hover:bg-emerald-500 transition-colors leading-tight">Receita<br/>Paga</button>
-                             </div>
-                          </div>
-                        )
-                    }) : (
-                      <div className="col-span-full py-20 text-center bg-white border-2 border-dashed border-slate-200 rounded-[2rem]">
-                          <p className="text-slate-400 font-bold uppercase text-xs">Nenhuma obra cadastrada no sistema.</p>
+                    {projects.map(p => (
+                      <div key={p.id} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-blue-200 transition-all">
+                         <div className="p-8 flex-1">
+                            <h4 className="font-black text-lg text-slate-900 truncate mb-1">{p.name}</h4>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{p.client}</p>
+                            <div className="mt-4 space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                               <div className="flex justify-between text-[10px] font-black uppercase"><span className="text-slate-400">Total Contrato</span><span className="text-slate-900">{formatCurrency(p.budget)}</span></div>
+                               <div className="flex justify-between text-[10px] font-black uppercase"><span className="text-emerald-400">Medição Paga</span><span className="text-emerald-600">{formatCurrency(p.revenues.reduce((s,r)=>s+r.amount, 0))}</span></div>
+                               <div className="flex justify-between text-[10px] font-black uppercase"><span className="text-blue-400">Medição Prevista</span><span className="text-blue-600">{formatCurrency(p.plannedRevenues?.reduce((s,r)=>s+r.amount, 0) || 0)}</span></div>
+                            </div>
+                         </div>
+                         <div className="bg-slate-50 p-4 border-t border-slate-100 grid grid-cols-3 gap-2">
+                            <button onClick={() => { resetFormFields(); setGenericTransaction({ isOpen: true, projectId: p.id, type: 'expense', transId: null }); }} className="py-2 bg-slate-900 text-white rounded-xl text-[8px] font-black uppercase">Saída</button>
+                            <button onClick={() => { resetFormFields(); setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_planned', transId: null }); }} className="py-2 bg-blue-600 text-white rounded-xl text-[8px] font-black uppercase">Prevista</button>
+                            <button onClick={() => { resetFormFields(); setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_paid', transId: null }); }} className="py-2 bg-emerald-600 text-white rounded-xl text-[8px] font-black uppercase">Paga</button>
+                         </div>
                       </div>
-                    )}
+                    ))}
                   </div>
                 ) : (
-                  <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
-                     <div className="p-6 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-4">
-                        <div className="relative flex-1 max-w-md">
-                           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                           <input 
-                              type="text" 
-                              placeholder="Buscar por descrição ou obra..." 
-                              className="w-full pl-12 pr-4 py-3 rounded-2xl border border-slate-200 outline-none focus:border-blue-500 font-medium text-sm transition-all"
-                              value={searchTerm}
-                              onChange={(e) => setSearchTerm(e.target.value)}
-                           />
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase bg-white px-4 py-3 rounded-2xl border border-slate-200">
-                           <Filter size={14} /> total: {allTransactions.length} lançamentos
-                        </div>
-                     </div>
+                  <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
                      <div className="overflow-x-auto">
                         <table className="w-full text-left">
-                           <thead className="bg-slate-50/50 text-[10px] font-black text-slate-500 uppercase border-b border-slate-100">
+                           <thead className="bg-slate-50 text-[10px] font-black text-slate-500 uppercase">
                               <tr>
                                  <th className="px-8 py-5">Tipo</th>
                                  <th className="px-8 py-5">Data</th>
-                                 <th className="px-8 py-5">Obra de Origem</th>
-                                 <th className="px-8 py-5">Discriminação</th>
+                                 <th className="px-8 py-5">Obra</th>
+                                 <th className="px-8 py-5">Descrição</th>
                                  <th className="px-8 py-5 text-right">Valor</th>
-                                 <th className="px-8 py-5 text-center">Anexo</th>
                                  <th className="px-8 py-5 text-center">Ações</th>
                               </tr>
                            </thead>
@@ -526,67 +402,26 @@ const App: React.FC = () => {
                               {allTransactions.map(t => (
                                  <tr key={t.id} className="hover:bg-slate-50/50 transition-colors group">
                                     <td className="px-8 py-4">
-                                       <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase border ${
+                                       <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase border ${
                                           t.color === 'rose' ? 'bg-rose-50 text-rose-600 border-rose-100' : 
                                           t.color === 'emerald' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-blue-50 text-blue-600 border-blue-100'
-                                       }`}>
-                                          {t.type}
-                                       </span>
+                                       }`}>{t.type}</span>
                                     </td>
                                     <td className="px-8 py-4 text-xs font-bold text-slate-500">{new Date(t.date).toLocaleDateString('pt-BR')}</td>
-                                    <td className="px-8 py-4 text-xs font-black text-slate-900 uppercase tracking-tighter">{t.projectName}</td>
-                                    <td className="px-8 py-4">
-                                       <div className="flex flex-col">
-                                          <span className="text-xs font-bold text-slate-700">{t.description}</span>
-                                          {t.category && <span className="text-[9px] font-black text-slate-400 uppercase mt-1">C.CUSTO: {t.category}</span>}
-                                       </div>
-                                    </td>
-                                    <td className={`px-8 py-4 text-right font-black text-sm ${t.color === 'rose' ? 'text-rose-600' : t.color === 'emerald' ? 'text-emerald-600' : 'text-blue-600'}`}>
-                                       {formatCurrency(t.amount)}
-                                    </td>
+                                    <td className="px-8 py-4 text-xs font-black text-slate-900 uppercase">{t.projectName}</td>
+                                    <td className="px-8 py-4 text-xs font-bold text-slate-700">{t.description}</td>
+                                    <td className={`px-8 py-4 text-right font-black text-sm ${t.color === 'rose' ? 'text-rose-600' : t.color === 'emerald' ? 'text-emerald-600' : 'text-blue-600'}`}>{formatCurrency(t.amount)}</td>
                                     <td className="px-8 py-4 text-center">
-                                       {t.attachment ? (
-                                          <button 
-                                             onClick={() => openAttachment(t.attachment)}
-                                             className="p-2.5 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-500 rounded-xl transition-all shadow-sm flex items-center justify-center mx-auto"
-                                             title="Ver Documento"
-                                          >
-                                             {t.attachment.type.includes('pdf') ? <FileSearch size={16} /> : <ImageIcon size={16} />}
-                                          </button>
-                                       ) : (
-                                          <span className="text-[9px] font-black text-slate-300 uppercase">S/ Anexo</span>
-                                       )}
-                                    </td>
-                                    <td className="px-8 py-4 text-center">
-                                       <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                          <button 
-                                             onClick={() => handleEditTransaction(t)}
-                                             className="p-2 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all"
-                                             title="Editar"
-                                          >
-                                             <Edit2 size={16} />
-                                          </button>
-                                          <button 
-                                             onClick={() => deleteTransaction(t.projectId, t.id, t.type)}
-                                             className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
-                                             title="Excluir"
-                                          >
-                                             <Trash2 size={16} />
-                                          </button>
+                                       <div className="flex items-center justify-center gap-1">
+                                          {t.type === 'Receita Prevista' && (
+                                            <button onClick={() => handleMarkAsPaid(t.projectId, t.rawData)} className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-lg title='Confirmar Recebimento'"><CheckCircle2 size={18} /></button>
+                                          )}
+                                          <button onClick={() => handleEditTransaction(t)} className="p-2 text-slate-300 hover:text-blue-500 rounded-lg"><Edit2 size={16} /></button>
+                                          <button onClick={() => deleteTransaction(t.projectId, t.id, t.type)} className="p-2 text-slate-300 hover:text-rose-500 rounded-lg"><Trash2 size={16} /></button>
                                        </div>
                                     </td>
                                  </tr>
                               ))}
-                              {allTransactions.length === 0 && (
-                                 <tr>
-                                    <td colSpan={7} className="py-20 text-center">
-                                       <div className="flex flex-col items-center gap-3">
-                                          <div className="p-4 bg-slate-50 rounded-full text-slate-300"><History size={40} /></div>
-                                          <p className="text-slate-400 font-bold uppercase text-xs">Nenhum lançamento encontrado para os filtros aplicados.</p>
-                                       </div>
-                                    </td>
-                                 </tr>
-                              )}
                            </tbody>
                         </table>
                      </div>
@@ -597,85 +432,48 @@ const App: React.FC = () => {
 
            {activeView === 'forecast' && (
               <div className="max-w-7xl mx-auto space-y-8">
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-6 group hover:border-blue-200 transition-all">
-                       <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl group-hover:bg-rose-100 transition-colors"><Calculator size={24} /></div>
-                       <div className="flex-1">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Taxa de Imposto (%)</p>
-                          <div className="flex items-center gap-2">
-                            <input 
-                              type="number" 
-                              value={settings.taxRate} 
-                              onChange={(e) => setSettings({...settings, taxRate: Number(e.target.value)})}
-                              className="text-2xl font-black text-slate-900 bg-transparent border-b-2 border-slate-100 focus:border-blue-500 outline-none w-24 transition-all"
-                            />
-                            <Percent size={16} className="text-slate-300" />
-                          </div>
-                       </div>
-                    </div>
-                    <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-6 group hover:border-indigo-200 transition-all">
-                       <div className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl group-hover:bg-indigo-100 transition-colors"><HandCoins size={24} /></div>
-                       <div className="flex-1">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Comissão / Provisão (%)</p>
-                          <div className="flex items-center gap-2">
-                            <input 
-                              type="number" 
-                              value={settings.commissionRate} 
-                              onChange={(e) => setSettings({...settings, commissionRate: Number(e.target.value)})}
-                              className="text-2xl font-black text-slate-900 bg-transparent border-b-2 border-slate-100 focus:border-blue-500 outline-none w-24 transition-all"
-                            />
-                            <Percent size={16} className="text-slate-300" />
-                          </div>
-                       </div>
-                    </div>
-                 </div>
-
                  <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm">
                     <div className="p-8 bg-slate-900 text-white flex justify-between items-center">
                        <div>
-                          <h3 className="text-xl font-black uppercase tracking-tighter">Projeção de Lucro Real</h3>
-                          <p className="text-blue-400 font-bold uppercase text-[10px] tracking-widest mt-1">
-                            Baseado em {settings.taxRate}% Imposto e {settings.commissionRate}% Comissão sobre saldo a receber
-                          </p>
+                          <h3 className="text-xl font-black uppercase tracking-tighter">Relatório Estratégico de Comissões</h3>
+                          <p className="text-blue-400 font-bold uppercase text-[10px] tracking-widest mt-1">Regra: Comissão calculada sobre (Receita - Imposto {settings.taxRate}%)</p>
                        </div>
-                       <div className="p-3 bg-slate-800 rounded-2xl"><TrendingUp size={24} className="text-emerald-400" /></div>
+                       <div className="p-3 bg-slate-800 rounded-2xl"><Handshake size={24} className="text-emerald-400" /></div>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-sm">
                          <thead className="bg-slate-50 text-[10px] font-black text-slate-500 uppercase border-b">
                             <tr>
-                               <th className="px-8 py-5">Identificação</th>
-                               <th className="px-8 py-5 text-right">Contrato</th>
-                               <th className="px-8 py-5 text-right">Saldo a Receber</th>
-                               <th className="px-8 py-5 text-right">Impostos Previstos</th>
-                               <th className="px-8 py-5 text-right">Comissões Previstas</th>
-                               <th className="px-8 py-5 text-right">Comissão Paga</th>
-                               <th className="px-8 py-5 text-right">Lucro Final Projetado</th>
+                               <th className="px-8 py-5">Obra</th>
+                               <th className="px-8 py-5 text-right">Medições Pagas</th>
+                               <th className="px-8 py-5 text-right">Comissão Devida (Pagas)</th>
+                               <th className="px-8 py-5 text-right">Comissão Paga (Caixa)</th>
+                               <th className="px-8 py-5 text-right">Medições Previstas</th>
+                               <th className="px-8 py-5 text-right">Comissão Estimada (Previsto)</th>
+                               <th className="px-8 py-5 text-right">Saldo a Pagar Total</th>
                             </tr>
                          </thead>
                          <tbody className="divide-y divide-slate-100">
                             {projects.map(p => {
-                               const expenses = p.expenses.reduce((acc, e) => acc + e.amount, 0);
-                               const rev = p.revenues.reduce((acc, r) => acc + r.amount, 0);
-                               const outstanding = Math.max(0, p.budget - rev);
+                               const revPaid = p.revenues.reduce((s,r)=>s+r.amount, 0);
+                               const revPlanned = p.plannedRevenues?.reduce((s,r)=>s+r.amount, 0) || 0;
+                               const taxFactor = (1 - settings.taxRate / 100);
+                               const commFactor = settings.commissionRate / 100;
                                
-                               const provTax = outstanding * (settings.taxRate / 100);
-                               const provCom = (outstanding - provTax) * (settings.commissionRate / 100);
-                               const commissionPaid = p.expenses.filter(e => e.category === 'Comissão').reduce((acc, e) => acc + e.amount, 0);
-                               
-                               const finalProfit = p.budget - expenses - provTax - provCom;
-                               
+                               const commEarnedPaid = revPaid * taxFactor * commFactor;
+                               const commEstimatedPlanned = revPlanned * taxFactor * commFactor;
+                               const commPaidCaixa = p.expenses.filter(e => e.category === 'Comissão').reduce((s,e)=>s+e.amount, 0);
+                               const balanceTotal = (commEarnedPaid + commEstimatedPlanned) - commPaidCaixa;
+
                                return (
                                   <tr key={p.id} className="hover:bg-blue-50/20 transition-colors">
                                      <td className="px-8 py-6 font-black text-slate-800">{p.name}</td>
-                                     <td className="px-8 py-6 text-right font-bold text-slate-500">{formatCurrency(p.budget)}</td>
-                                     <td className="px-8 py-6 text-right font-bold text-blue-600">{formatCurrency(outstanding)}</td>
-                                     <td className="px-8 py-6 text-right font-bold text-rose-400">{formatCurrency(provTax)}</td>
-                                     <td className="px-8 py-6 text-right font-bold text-indigo-400">{formatCurrency(provCom)}</td>
-                                     <td className="px-8 py-6 text-right font-bold text-slate-500">{formatCurrency(commissionPaid)}</td>
-                                     <td className={`px-8 py-6 text-right font-black text-lg ${finalProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                       {formatCurrency(finalProfit)}
-                                     </td>
+                                     <td className="px-8 py-6 text-right font-bold text-slate-500">{formatCurrency(revPaid)}</td>
+                                     <td className="px-8 py-6 text-right font-bold text-emerald-500">{formatCurrency(commEarnedPaid)}</td>
+                                     <td className="px-8 py-6 text-right font-bold text-rose-500">{formatCurrency(commPaidCaixa)}</td>
+                                     <td className="px-8 py-6 text-right font-bold text-blue-500">{formatCurrency(revPlanned)}</td>
+                                     <td className="px-8 py-6 text-right font-bold text-blue-600">{formatCurrency(commEstimatedPlanned)}</td>
+                                     <td className={`px-8 py-6 text-right font-black ${balanceTotal > 0 ? 'text-indigo-600' : 'text-slate-400'}`}>{formatCurrency(balanceTotal)}</td>
                                   </tr>
                                )
                             })}
@@ -685,242 +483,64 @@ const App: React.FC = () => {
                  </div>
               </div>
            )}
-
-           {activeView === 'ai' && (
-             <div className="max-w-4xl mx-auto text-center py-20 space-y-8 animate-in zoom-in-95 duration-500">
-                <div className="inline-flex p-8 bg-blue-600 text-white rounded-[3rem] shadow-2xl shadow-blue-500/30 mb-8"><BrainCircuit size={80} /></div>
-                <h3 className="text-4xl font-black text-slate-900 uppercase tracking-tighter leading-none">Auditoria Inteligente</h3>
-                <p className="text-slate-500 font-medium max-w-lg mx-auto">Análise profunda de medições e centros de custo para otimização de margens de lucro.</p>
-                <div className="bg-white p-12 rounded-[3rem] border border-slate-200 shadow-xl relative overflow-hidden">
-                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 to-indigo-600"></div>
-                   {isAnalyzing ? (
-                      <div className="space-y-6">
-                         <div className="w-20 h-20 border-[6px] border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-                         <p className="font-black text-slate-800 uppercase text-xs animate-pulse tracking-widest">Processando Auditoria de Sistema...</p>
-                      </div>
-                   ) : aiAnalysis ? (
-                      <div className="text-left whitespace-pre-wrap font-medium text-slate-700 prose prose-slate max-w-none">{aiAnalysis}</div>
-                   ) : (
-                      <div className="space-y-8">
-                        <p className="text-slate-500">Nossa inteligência artificial analisará todos os lançamentos para identificar falhas de medição e desperdícios de materiais.</p>
-                        <button onClick={async () => { setIsAnalyzing(true); setAiAnalysis(await analyzeFinancials(projects)); setIsAnalyzing(false); }} className="px-12 py-5 bg-slate-900 text-white font-black rounded-2xl shadow-2xl hover:bg-slate-800 transition-all uppercase tracking-widest text-sm">Gerar Diagnóstico Estratégico</button>
-                      </div>
-                   )}
-                </div>
-             </div>
-           )}
         </div>
       </main>
 
-      {/* Modais do Sistema */}
+      {/* Modal Lançamento */}
       {genericTransaction.isOpen && (
          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-6">
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-               <div className={`p-8 text-white flex justify-between items-center ${
-                 genericTransaction.type === 'expense' ? 'bg-slate-900' : 
-                 genericTransaction.type === 'revenue_paid' ? 'bg-emerald-600' : 'bg-blue-600'
-               }`}>
-                  <div>
-                    <h3 className="text-xl font-black uppercase tracking-widest">
-                      {genericTransaction.transId ? 'Editar Registro' : 
-                       genericTransaction.type === 'expense' ? 'Registro de Despesa' : 
-                       genericTransaction.type === 'revenue_planned' ? 'Receita Prevista' : 'Receita Paga'}
-                    </h3>
-                    <p className="text-[10px] font-bold opacity-60 uppercase tracking-widest mt-1">Módulo Financeiro Central</p>
-                  </div>
-                  <button onClick={() => { setGenericTransaction({ isOpen: false, projectId: null, type: 'expense', transId: null }); resetFormFields(); }} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                    <X size={24} />
-                  </button>
+               <div className={`p-8 text-white flex justify-between items-center ${genericTransaction.type === 'expense' ? 'bg-slate-900' : genericTransaction.type === 'revenue_paid' ? 'bg-emerald-600' : 'bg-blue-600'}`}>
+                  <h3 className="text-xl font-black uppercase tracking-widest">{genericTransaction.transId ? 'Editar' : 'Novo Lançamento'}</h3>
+                  <button onClick={() => { setGenericTransaction({ isOpen: false, projectId: null, type: 'expense', transId: null }); resetFormFields(); }} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24} /></button>
                </div>
                <form onSubmit={(e) => {
                   e.preventDefault();
                   const amount = Number(formAmount);
                   const isEditing = !!genericTransaction.transId;
-                  
                   setProjects(prev => prev.map(p => {
                      if (p.id !== genericTransaction.projectId) return p;
-                     
                      if (genericTransaction.type === 'expense') {
-                        const newExpense = { 
-                           id: isEditing ? genericTransaction.transId! : crypto.randomUUID(), 
-                           description: formDescription, 
-                           amount, 
-                           date: formDate, 
-                           category: formCategory,
-                           attachment: tempAttachment || undefined
-                        };
-                        return { 
-                           ...p, 
-                           expenses: isEditing 
-                             ? p.expenses.map(exp => exp.id === genericTransaction.transId ? newExpense : exp)
-                             : [...p.expenses, newExpense]
-                        };
+                        const newExpense = { id: isEditing ? genericTransaction.transId! : crypto.randomUUID(), description: formDescription, amount, date: formDate, category: formCategory, attachment: tempAttachment || undefined };
+                        return { ...p, expenses: isEditing ? p.expenses.map(exp => exp.id === genericTransaction.transId ? newExpense : exp) : [...p.expenses, newExpense] };
                      } else if (genericTransaction.type === 'revenue_planned') {
                         const newPlanned = { id: isEditing ? genericTransaction.transId! : crypto.randomUUID(), description: formDescription, amount, date: formDate };
-                        return { 
-                           ...p, 
-                           plannedRevenues: isEditing 
-                             ? (p.plannedRevenues || []).map(rev => rev.id === genericTransaction.transId ? newPlanned : rev)
-                             : [...(p.plannedRevenues || []), newPlanned]
-                        };
+                        return { ...p, plannedRevenues: isEditing ? (p.plannedRevenues || []).map(rev => rev.id === genericTransaction.transId ? newPlanned : rev) : [...(p.plannedRevenues || []), newPlanned] };
                      } else {
                         const newPaid = { id: isEditing ? genericTransaction.transId! : crypto.randomUUID(), description: formDescription, amount, date: formDate };
-                        return { 
-                           ...p, 
-                           revenues: isEditing 
-                             ? p.revenues.map(rev => rev.id === genericTransaction.transId ? newPaid : rev)
-                             : [...p.revenues, newPaid]
-                        };
+                        return { ...p, revenues: isEditing ? p.revenues.map(rev => rev.id === genericTransaction.transId ? newPaid : rev) : [...p.revenues, newPaid] };
                      }
                   }));
                   setGenericTransaction({ isOpen: false, projectId: null, type: 'expense', transId: null });
-                  resetFormFields(); // Limpa ao fechar após sucesso
-               }} className="p-10 space-y-6 max-h-[75vh] overflow-y-auto">
-                  
-                  {genericTransaction.type === 'expense' && (
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black text-slate-400 uppercase ml-1 block">
-                          {tempAttachment ? 'Comprovante em Anexo' : 'Nota Fiscal / Comprovante (PDF ou Imagem)'}
-                       </label>
-                       <label className={`w-full flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed rounded-[1.5rem] transition-all cursor-pointer ${tempAttachment ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'} ${isReadingInvoice ? 'animate-pulse' : ''}`}>
-                          {isReadingInvoice ? (
-                            <div className="flex flex-col items-center gap-2">
-                              <Loader2 className="text-blue-600 animate-spin" size={32} />
-                              <p className="text-[10px] font-black text-blue-600 uppercase">Lendo Nota Fiscal...</p>
-                            </div>
-                          ) : (
-                            <>
-                              <div className={`p-3 rounded-2xl ${tempAttachment ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                                 {tempAttachment ? <Check size={20} /> : <Upload size={20} />}
-                              </div>
-                              <div className="text-center">
-                                 <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
-                                    {tempAttachment ? 'Clique para Substituir' : 'Clique para Carregar'}
-                                 </p>
-                                 <p className="text-[9px] font-medium text-slate-400 mt-1 max-w-[200px] truncate">
-                                    {tempAttachment ? tempAttachment.name : 'Formatos aceitos: PDF, JPG, PNG'}
-                                 </p>
-                              </div>
-                            </>
-                          )}
-                          <input type="file" className="hidden" accept=".pdf,image/*" onChange={handleFileChange} />
-                       </label>
-                    </div>
-                  )}
-
+                  resetFormFields(); 
+               }} className="p-10 space-y-6">
                   <div className="space-y-1">
-                     <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Descrição Editável</label>
-                     <input 
-                      required 
-                      value={formDescription} 
-                      onChange={(e) => setFormDescription(e.target.value)} 
-                      placeholder="Ex: NF Material de Alvenaria" 
-                      className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" 
-                    />
+                     <label className="text-[10px] font-black text-slate-400 uppercase">Descrição</label>
+                     <input required value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="Ex: Medição Nov/2025" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Valor R$ (Corrigível)</label>
-                        <input 
-                          required 
-                          type="number" 
-                          step="0.01" 
-                          value={formAmount} 
-                          onChange={(e) => setFormAmount(e.target.value)} 
-                          placeholder="0,00" 
-                          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none focus:border-blue-500" 
-                        />
+                        <label className="text-[10px] font-black text-slate-400 uppercase">Valor R$</label>
+                        <input required type="number" step="0.01" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none" />
                      </div>
                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Data</label>
-                        <input 
-                          required 
-                          type="date" 
-                          value={formDate} 
-                          onChange={(e) => setFormDate(e.target.value)} 
-                          className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" 
-                        />
+                        <label className="text-[10px] font-black text-slate-400 uppercase">Data</label>
+                        <input required type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" />
                      </div>
                   </div>
-
                   {genericTransaction.type === 'expense' && (
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Centro de Custo</label>
-                      <select 
-                        value={formCategory} 
-                        onChange={(e) => setFormCategory(e.target.value as ExpenseCategory)} 
-                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 appearance-none"
-                      >
+                      <label className="text-[10px] font-black text-slate-400 uppercase">Categoria</label>
+                      <select value={formCategory} onChange={(e) => setFormCategory(e.target.value as ExpenseCategory)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none">
                         <option value="Material">Material</option>
                         <option value="Mão de Obra">Mão de Obra</option>
-                        <option value="Comissão">Comissão / Provisão</option>
-                        <option value="Equipamentos">Aluguel de Equipamentos</option>
-                        <option value="Serviços Terceiros">Serviços Terceiros</option>
-                        <option value="Outros">Outros Custos</option>
+                        <option value="Comissão">Comissão / Sócios</option>
+                        <option value="Impostos">Impostos / ISS</option>
+                        <option value="Outros">Outros</option>
                       </select>
                     </div>
                   )}
-
-                  <button type="submit" className={`w-full py-5 text-white font-black rounded-2xl uppercase shadow-xl transition-all active:scale-[0.98] tracking-widest text-xs flex items-center justify-center gap-2 ${
-                    genericTransaction.type === 'expense' ? 'bg-slate-900 hover:bg-slate-800' : 
-                    genericTransaction.type === 'revenue_paid' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-blue-600 hover:bg-blue-500'
-                  }`}>
-                    {genericTransaction.transId ? <Save size={16} /> : <Check size={16} />} 
-                    {genericTransaction.transId ? 'Salvar Correções' : 'Confirmar Registro'}
-                  </button>
-               </form>
-            </div>
-         </div>
-      )}
-
-      {isAddingProject && (
-         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-6">
-            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-               <div className="p-8 bg-blue-600 text-white flex justify-between items-center">
-                  <h3 className="text-xl font-black uppercase tracking-tighter">
-                     {editingProjectId ? 'Editar Dados da Obra' : 'Abertura de Obra'}
-                  </h3>
-                  <button onClick={() => { setIsAddingProject(false); setEditingProjectId(null); }} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X size={24} /></button>
-               </div>
-               <form onSubmit={(e) => {
-                  e.preventDefault();
-                  const formData = new FormData(e.currentTarget);
-                  const name = formData.get('name') as string;
-                  const client = formData.get('client') as string;
-                  const budget = Number(formData.get('budget'));
-
-                  if (editingProjectId) {
-                     setProjects(prev => prev.map(p => p.id === editingProjectId ? { ...p, name, client, budget } : p));
-                  } else {
-                     setProjects([...projects, { 
-                        id: crypto.randomUUID(), 
-                        name, client, budget,
-                        startDate: new Date().toISOString(), 
-                        status: 'Em Execução', 
-                        expenses: [], 
-                        revenues: [],
-                        plannedRevenues: []
-                     }]);
-                  }
-                  setIsAddingProject(false);
-                  setEditingProjectId(null);
-               }} className="p-10 space-y-5 overflow-y-auto max-h-[80vh]">
-                  <div className="space-y-1">
-                     <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Identificação da Obra</label>
-                     <input required name="name" defaultValue={editingProjectId ? projects.find(p => p.id === editingProjectId)?.name : ''} placeholder="Ex: Reforma Colégio Municipal" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
-                  </div>
-                  <div className="space-y-1">
-                     <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Órgão / Cliente</label>
-                     <input required name="client" defaultValue={editingProjectId ? projects.find(p => p.id === editingProjectId)?.client : ''} placeholder="Ex: Secretaria de Obras" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-1">Valor Global do Contrato R$ (Revisável)</label>
-                    <input required name="budget" type="number" step="0.01" defaultValue={editingProjectId ? projects.find(p => p.id === editingProjectId)?.budget : ''} placeholder="0,00" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none focus:border-blue-500" />
-                  </div>
-                  <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase shadow-xl hover:bg-blue-500 transition-all tracking-widest text-xs flex items-center justify-center gap-2">
-                     {editingProjectId ? <Save size={16} /> : <Check size={16} />}
-                     {editingProjectId ? 'Salvar Alterações' : 'Cadastrar no Sistema'}
-                  </button>
+                  <button type="submit" className="w-full py-5 text-white font-black rounded-2xl uppercase shadow-xl bg-slate-900 hover:bg-slate-800">Confirmar Lançamento</button>
                </form>
             </div>
          </div>
