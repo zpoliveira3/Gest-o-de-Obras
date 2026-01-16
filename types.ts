@@ -1,29 +1,32 @@
 
 export type ExpenseCategory = 'Material' | 'Mão de Obra' | 'Logística' | 'Equipamentos' | 'Impostos' | 'Serviços Terceiros' | 'Comissão' | 'Outros';
+export type UserRole = 'admin' | 'engenheiro' | 'financeiro' | 'visitante';
 
-export interface Attachment {
-  name: string;
-  type: string;
-  data: string; // Base64 string
+export interface User {
+  id: string;
+  username: string;
+  password?: string;
+  role: UserRole;
+  fullName: string;
 }
 
 export interface Expense {
   id: string;
   description: string;
   amount: number;
-  date: string; // Data da competência (NF/Recibo)
-  createdAt: string; // Data real do lançamento no sistema
+  date: string;
+  createdAt: string;
   category: ExpenseCategory;
-  invoiceNumber?: string;
-  attachment?: Attachment;
+  createdBy?: string; // Nome do usuário que lançou
 }
 
 export interface Revenue {
   id: string;
   description: string;
   amount: number;
-  date: string; // Data do recebimento/previsão
-  createdAt: string; // Data real do lançamento no sistema
+  date: string;
+  createdAt: string;
+  createdBy?: string;
 }
 
 export interface Project {
@@ -32,21 +35,16 @@ export interface Project {
   client: string;
   budget: number;
   startDate: string;
+  location?: string;
   status: 'Em Planejamento' | 'Em Execução' | 'Concluído' | 'Pausado';
   expenses: Expense[];
-  revenues: Revenue[]; // Receitas Pagas
-  plannedRevenues: Revenue[]; // Receitas Previstas
+  revenues: Revenue[];
+  plannedRevenues: Revenue[];
 }
 
 export interface AuthState {
   isLoggedIn: boolean;
   companyName: string;
   companyKey: string;
-  userRole: 'admin' | 'editor';
-  password?: string;
-}
-
-export interface SyncStatus {
-  lastSync: Date | null;
-  state: 'synced' | 'syncing' | 'error' | 'offline';
+  currentUser?: User;
 }
