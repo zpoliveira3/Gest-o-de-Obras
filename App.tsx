@@ -52,7 +52,8 @@ import {
   Image as ImageIcon,
   Loader2,
   Sparkles,
-  Save
+  Save,
+  Receipt
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -133,6 +134,22 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('gestao_obras_auth_v1', JSON.stringify(auth));
   }, [auth]);
+
+  // Lógica de reset total do formulário
+  const resetFormFields = () => {
+    setFormDescription('');
+    setFormAmount('');
+    setFormDate(new Date().toISOString().split('T')[0]);
+    setFormCategory('Material');
+    setTempAttachment(null);
+  };
+
+  // Garante campos limpos ao abrir para novo lançamento
+  useEffect(() => {
+    if (genericTransaction.isOpen && !genericTransaction.transId) {
+      resetFormFields();
+    }
+  }, [genericTransaction.isOpen, genericTransaction.transId]);
 
   const summary = useMemo(() => {
     const totalBudget = projects.reduce((acc, p) => acc + p.budget, 0);
@@ -218,7 +235,7 @@ const App: React.FC = () => {
     setFormDate(t.date);
     if (t.category) setFormCategory(t.category);
     if (t.attachment) setTempAttachment(t.attachment);
-    setProjectsSubView('cards'); // Fechar o extrato para mostrar o modal
+    setProjectsSubView('cards'); 
   };
 
   const handleEditProject = (p: Project) => {
@@ -463,9 +480,9 @@ const App: React.FC = () => {
                                 </div>
                              </div>
                              <div className="bg-slate-50 p-4 border-t border-slate-100 grid grid-cols-3 gap-2">
-                                <button onClick={() => { setGenericTransaction({ isOpen: true, projectId: p.id, type: 'expense', transId: null }); setTempAttachment(null); }} className="py-2.5 bg-slate-900 text-white rounded-xl text-[8px] font-black uppercase hover:bg-slate-800 transition-colors leading-tight">Lançar<br/>Saída</button>
-                                <button onClick={() => { setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_planned', transId: null }); setTempAttachment(null); }} className="py-2.5 bg-blue-600 text-white rounded-xl text-[8px] font-black uppercase hover:bg-blue-500 transition-colors leading-tight">Receita<br/>Prevista</button>
-                                <button onClick={() => { setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_paid', transId: null }); setTempAttachment(null); }} className="py-2.5 bg-emerald-600 text-white rounded-xl text-[8px] font-black uppercase hover:bg-emerald-500 transition-colors leading-tight">Receita<br/>Paga</button>
+                                <button onClick={() => { setGenericTransaction({ isOpen: true, projectId: p.id, type: 'expense', transId: null }); resetFormFields(); }} className="py-2.5 bg-slate-900 text-white rounded-xl text-[8px] font-black uppercase hover:bg-slate-800 transition-colors leading-tight">Lançar<br/>Saída</button>
+                                <button onClick={() => { setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_planned', transId: null }); resetFormFields(); }} className="py-2.5 bg-blue-600 text-white rounded-xl text-[8px] font-black uppercase hover:bg-blue-500 transition-colors leading-tight">Receita<br/>Prevista</button>
+                                <button onClick={() => { setGenericTransaction({ isOpen: true, projectId: p.id, type: 'revenue_paid', transId: null }); resetFormFields(); }} className="py-2.5 bg-emerald-600 text-white rounded-xl text-[8px] font-black uppercase hover:bg-emerald-500 transition-colors leading-tight">Receita<br/>Paga</button>
                              </div>
                           </div>
                         )
@@ -627,12 +644,13 @@ const App: React.FC = () => {
                       <table className="w-full text-left text-sm">
                          <thead className="bg-slate-50 text-[10px] font-black text-slate-500 uppercase border-b">
                             <tr>
-                               <th className="px-10 py-5">Identificação</th>
-                               <th className="px-10 py-5 text-right">Contrato</th>
-                               <th className="px-10 py-5 text-right">Saldo a Receber</th>
-                               <th className="px-10 py-5 text-right">Impostos Previstos</th>
-                               <th className="px-10 py-5 text-right">Comissões Previstas</th>
-                               <th className="px-10 py-5 text-right">Lucro Final Projetado</th>
+                               <th className="px-8 py-5">Identificação</th>
+                               <th className="px-8 py-5 text-right">Contrato</th>
+                               <th className="px-8 py-5 text-right">Saldo a Receber</th>
+                               <th className="px-8 py-5 text-right">Impostos Previstos</th>
+                               <th className="px-8 py-5 text-right">Comissões Previstas</th>
+                               <th className="px-8 py-5 text-right">Comissão Paga</th>
+                               <th className="px-8 py-5 text-right">Lucro Final Projetado</th>
                             </tr>
                          </thead>
                          <tbody className="divide-y divide-slate-100">
@@ -643,16 +661,19 @@ const App: React.FC = () => {
                                
                                const provTax = outstanding * (settings.taxRate / 100);
                                const provCom = (outstanding - provTax) * (settings.commissionRate / 100);
+                               const commissionPaid = p.expenses.filter(e => e.category === 'Comissão').reduce((acc, e) => acc + e.amount, 0);
+                               
                                const finalProfit = p.budget - expenses - provTax - provCom;
                                
                                return (
                                   <tr key={p.id} className="hover:bg-blue-50/20 transition-colors">
-                                     <td className="px-10 py-6 font-black text-slate-800">{p.name}</td>
-                                     <td className="px-10 py-6 text-right font-bold text-slate-500">{formatCurrency(p.budget)}</td>
-                                     <td className="px-10 py-6 text-right font-bold text-blue-600">{formatCurrency(outstanding)}</td>
-                                     <td className="px-10 py-6 text-right font-bold text-rose-400">{formatCurrency(provTax)}</td>
-                                     <td className="px-10 py-6 text-right font-bold text-indigo-400">{formatCurrency(provCom)}</td>
-                                     <td className={`px-10 py-6 text-right font-black text-lg ${finalProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                     <td className="px-8 py-6 font-black text-slate-800">{p.name}</td>
+                                     <td className="px-8 py-6 text-right font-bold text-slate-500">{formatCurrency(p.budget)}</td>
+                                     <td className="px-8 py-6 text-right font-bold text-blue-600">{formatCurrency(outstanding)}</td>
+                                     <td className="px-8 py-6 text-right font-bold text-rose-400">{formatCurrency(provTax)}</td>
+                                     <td className="px-8 py-6 text-right font-bold text-indigo-400">{formatCurrency(provCom)}</td>
+                                     <td className="px-8 py-6 text-right font-bold text-slate-500">{formatCurrency(commissionPaid)}</td>
+                                     <td className={`px-8 py-6 text-right font-black text-lg ${finalProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                                        {formatCurrency(finalProfit)}
                                      </td>
                                   </tr>
@@ -697,7 +718,7 @@ const App: React.FC = () => {
             <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
                <div className={`p-8 text-white flex justify-between items-center ${
                  genericTransaction.type === 'expense' ? 'bg-slate-900' : 
-                 genericTransaction.type === 'revenue_planned' ? 'bg-blue-600' : 'bg-emerald-600'
+                 genericTransaction.type === 'revenue_paid' ? 'bg-emerald-600' : 'bg-blue-600'
                }`}>
                   <div>
                     <h3 className="text-xl font-black uppercase tracking-widest">
@@ -707,7 +728,7 @@ const App: React.FC = () => {
                     </h3>
                     <p className="text-[10px] font-bold opacity-60 uppercase tracking-widest mt-1">Módulo Financeiro Central</p>
                   </div>
-                  <button onClick={() => { setGenericTransaction({ isOpen: false, projectId: null, type: 'expense', transId: null }); setTempAttachment(null); }} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                  <button onClick={() => { setGenericTransaction({ isOpen: false, projectId: null, type: 'expense', transId: null }); resetFormFields(); }} className="p-2 hover:bg-white/10 rounded-full transition-colors">
                     <X size={24} />
                   </button>
                </div>
@@ -753,7 +774,7 @@ const App: React.FC = () => {
                      }
                   }));
                   setGenericTransaction({ isOpen: false, projectId: null, type: 'expense', transId: null });
-                  setTempAttachment(null);
+                  resetFormFields(); // Limpa ao fechar após sucesso
                }} className="p-10 space-y-6 max-h-[75vh] overflow-y-auto">
                   
                   {genericTransaction.type === 'expense' && (
@@ -842,7 +863,7 @@ const App: React.FC = () => {
 
                   <button type="submit" className={`w-full py-5 text-white font-black rounded-2xl uppercase shadow-xl transition-all active:scale-[0.98] tracking-widest text-xs flex items-center justify-center gap-2 ${
                     genericTransaction.type === 'expense' ? 'bg-slate-900 hover:bg-slate-800' : 
-                    genericTransaction.type === 'revenue_planned' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-emerald-600 hover:bg-emerald-500'
+                    genericTransaction.type === 'revenue_paid' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-blue-600 hover:bg-blue-500'
                   }`}>
                     {genericTransaction.transId ? <Save size={16} /> : <Check size={16} />} 
                     {genericTransaction.transId ? 'Salvar Correções' : 'Confirmar Registro'}
