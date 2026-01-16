@@ -267,14 +267,10 @@ const App: React.FC = () => {
     (window as any)._extractedProjectData = null;
   };
 
-  const handleEditTransaction = (t: any) => {
-    resetFormFields();
-    setGenericTransaction({ isOpen: true, projectId: t.projectId, type: t.type === 'Saída' ? 'expense' : t.type === 'Receita Paga' ? 'revenue_paid' : 'revenue_planned', transId: t.id });
-    setFormDescription(t.description);
-    setFormAmount(t.amount.toString());
-    setFormDate(t.date);
-    if (t.category) setFormCategory(t.category);
-    setProjectsSubView('cards'); 
+  const handleDeleteProject = (projectId: string) => {
+    if (confirm('Atenção: Todos os dados desta obra (gastos e receitas) serão excluídos permanentemente. Deseja continuar?')) {
+      setProjects(prev => prev.filter(p => p.id !== projectId));
+    }
   };
 
   const deleteTransaction = (projectId: string, transId: string, type: string) => {
@@ -341,8 +337,13 @@ const App: React.FC = () => {
                 {projectsSubView === 'cards' ? (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {projects.map(p => (
-                      <div key={p.id} className="bg-white rounded-[2rem] border border-slate-200 p-8 shadow-sm hover:border-blue-200 transition-all">
-                         <h4 className="font-black text-lg text-slate-900 truncate mb-1 uppercase tracking-tight">{p.name}</h4>
+                      <div key={p.id} className="bg-white rounded-[2rem] border border-slate-200 p-8 shadow-sm hover:border-blue-200 transition-all relative group/card">
+                         <div className="flex justify-between items-start mb-1">
+                           <h4 className="font-black text-lg text-slate-900 truncate uppercase tracking-tight flex-1">{p.name}</h4>
+                           <button onClick={() => handleDeleteProject(p.id)} className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all" title="Excluir Obra">
+                             <Trash2 size={16} />
+                           </button>
+                         </div>
                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">{p.client}</p>
                          <div className="space-y-2 bg-slate-50 p-4 rounded-2xl">
                             <div className="flex justify-between text-[10px] font-black uppercase"><span>Contrato</span><span className="text-slate-900">{formatCurrency(p.budget)}</span></div>
