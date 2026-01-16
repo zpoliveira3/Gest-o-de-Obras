@@ -56,7 +56,9 @@ import {
   Receipt,
   Handshake,
   CheckCircle2,
-  FileUp
+  FileUp,
+  FileCheck2,
+  AlertTriangle
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -74,7 +76,7 @@ import {
 } from 'recharts';
 import { Project, Expense, Revenue, ExpenseCategory, Attachment, AuthState, SyncStatus } from './types';
 import { StatCard } from './components/StatCard';
-import { analyzeFinancials, analyzeInvoice, analyzeProjectDocument } from './services/geminiService';
+import { analyzeFinancials, analyzeProjectDocument } from './services/geminiService';
 
 const App: React.FC = () => {
   const [auth, setAuth] = useState<AuthState>(() => {
@@ -93,15 +95,15 @@ const App: React.FC = () => {
   const [projectsSubView, setProjectsSubView] = useState<'cards' | 'history'>('cards');
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [isProcessingDoc, setIsProcessingDoc] = useState(false);
-  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [docStatus, setDocStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [searchTerm, setSearchTerm] = useState('');
-  const [tempAttachment, setTempAttachment] = useState<Attachment | null>(null);
 
   // Form de Projeto
   const [projName, setProjName] = useState('');
   const [projClient, setProjClient] = useState('');
   const [projBudget, setProjBudget] = useState('');
   const [projDate, setProjDate] = useState(new Date().toISOString().split('T')[0]);
+  const [extractedPreview, setExtractedPreview] = useState<{revenues: number, expenses: number} | null>(null);
 
   const [formDescription, setFormDescription] = useState('');
   const [formAmount, setFormAmount] = useState<string>('');
@@ -123,7 +125,6 @@ const App: React.FC = () => {
     setFormAmount('');
     setFormDate(new Date().toISOString().split('T')[0]);
     setFormCategory('Material');
-    setTempAttachment(null);
   };
 
   const resetProjectFields = () => {
@@ -133,6 +134,9 @@ const App: React.FC = () => {
     setProjDate(new Date().toISOString().split('T')[0]);
     setIsAddingProject(false);
     setIsProcessingDoc(false);
+    setDocStatus('idle');
+    setExtractedPreview(null);
+    (window as any)._extractedProjectData = null;
   };
 
   useEffect(() => {
@@ -184,7 +188,6 @@ const App: React.FC = () => {
   const summary = useMemo(() => {
     const totalBudget = projects.reduce((acc, p) => acc + p.budget, 0);
     const totalRevenue = projects.reduce((acc, p) => acc + p.revenues.reduce((sum, r) => sum + r.amount, 0), 0);
-    const totalPlanned = projects.reduce((acc, p) => acc + (p.plannedRevenues?.reduce((sum, r) => sum + r.amount, 0) || 0), 0);
     const totalExpenses = projects.reduce((acc, p) => acc + p.expenses.reduce((sum, e) => sum + e.amount, 0), 0);
     const taxFactor = (1 - settings.taxRate / 100);
     const commRateFactor = (settings.commissionRate / 100);
@@ -196,7 +199,7 @@ const App: React.FC = () => {
     const futureCommissions = (outstandingReceivables - futureTaxes) * commRateFactor;
     const forecastProfit = totalBudget - totalExpenses - futureTaxes - (commissionBalance > 0 ? commissionBalance : 0) - futureCommissions;
 
-    return { totalBudget, totalRevenue, totalExpenses, totalCommissionsPaid, totalCommissionsEarnedOnMedicao, forecastProfit, outstandingReceivables, commissionBalance, totalPlanned };
+    return { totalBudget, totalRevenue, totalExpenses, totalCommissionsPaid, totalCommissionsEarnedOnMedicao, forecastProfit, outstandingReceivables, commissionBalance };
   }, [projects, settings]);
 
   const allTransactions = useMemo(() => {
@@ -225,6 +228,7 @@ const App: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       setIsProcessingDoc(true);
+      setDocStatus('idle');
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64 = reader.result as string;
@@ -235,8 +239,17 @@ const App: React.FC = () => {
             if (data.client) setProjClient(data.client);
             if (data.budget) setProjBudget(data.budget.toString());
             if (data.startDate) setProjDate(data.startDate);
+            setExtractedPreview({
+              revenues: (data.revenues?.length || 0) + (data.plannedRevenues?.length || 0),
+              expenses: (data.expenses?.length || 0)
+            });
             (window as any)._extractedProjectData = data;
+            setDocStatus('success');
+          } else {
+            setDocStatus('error');
           }
+        } catch(err) {
+          setDocStatus('error');
         } finally {
           setIsProcessingDoc(false);
         }
@@ -264,7 +277,6 @@ const App: React.FC = () => {
 
     setProjects(prev => [...prev, newProject]);
     resetProjectFields();
-    (window as any)._extractedProjectData = null;
   };
 
   const handleDeleteProject = (projectId: string) => {
@@ -472,52 +484,69 @@ const App: React.FC = () => {
       {/* Modal Nova Obra */}
       {isAddingProject && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-6">
-           <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-              <div className="p-8 bg-blue-600 text-white flex justify-between items-center">
+           <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+              <div className="p-8 bg-blue-600 text-white flex justify-between items-center shrink-0">
                  <h3 className="text-xl font-black uppercase tracking-widest">Nova Obra / Contrato</h3>
                  <button onClick={resetProjectFields} className="p-2 hover:bg-white/10 rounded-full"><X size={24} /></button>
               </div>
-              <div className="p-10 space-y-8">
+              <div className="p-10 space-y-8 overflow-y-auto flex-1">
                  <div className="bg-slate-50 p-8 rounded-[2rem] border-2 border-dashed border-slate-200 relative group hover:border-blue-400 transition-all text-center">
                     {isProcessingDoc ? (
                       <div className="flex flex-col items-center gap-4 py-4">
                          <Loader2 className="animate-spin text-blue-600" size={40} />
-                         <p className="text-xs font-black uppercase text-blue-600 animate-pulse">IA lendo documento...</p>
+                         <p className="text-xs font-black uppercase text-blue-600 animate-pulse tracking-widest">IA analisando documento...</p>
+                         <p className="text-[9px] font-bold text-slate-400 uppercase">Extraindo tabelas, medições e valores globais</p>
                       </div>
                     ) : (
                       <>
-                        <input type="file" onChange={handleProjectFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+                        <input type="file" accept="application/pdf,image/*" onChange={handleProjectFileUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                         <div className="flex flex-col items-center gap-3">
-                           <FileUp size={48} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
-                           <p className="text-xs font-black uppercase text-slate-400">Arraste seu Relatório ou PDF aqui</p>
-                           <p className="text-[9px] font-bold text-slate-300 uppercase">A IA irá preencher o formulário automaticamente</p>
+                           {docStatus === 'success' ? <FileCheck2 size={48} className="text-emerald-500" /> : <FileUp size={48} className={`text-slate-300 group-hover:text-blue-500 transition-colors ${docStatus === 'error' ? 'text-rose-400' : ''}`} />}
+                           <p className="text-xs font-black uppercase text-slate-400">
+                             {docStatus === 'success' ? 'Análise concluída com sucesso!' : docStatus === 'error' ? 'Erro na análise. Tente novamente.' : 'Importar Medição ou Contrato (PDF/IMG)'}
+                           </p>
+                           <p className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">A IA preencherá os campos e lançamentos abaixo</p>
                         </div>
                       </>
                     )}
                  </div>
 
+                 {extractedPreview && (
+                   <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-2xl flex items-center justify-around animate-in slide-in-from-top-2">
+                      <div className="text-center">
+                         <p className="text-[9px] font-black uppercase text-emerald-600 tracking-widest">Receitas Detectadas</p>
+                         <p className="text-xl font-black text-emerald-700">{extractedPreview.revenues}</p>
+                      </div>
+                      <div className="w-px h-8 bg-emerald-200/50"></div>
+                      <div className="text-center">
+                         <p className="text-[9px] font-black uppercase text-emerald-600 tracking-widest">Despesas Detectadas</p>
+                         <p className="text-xl font-black text-emerald-700">{extractedPreview.expenses}</p>
+                      </div>
+                   </div>
+                 )}
+
                  <form onSubmit={handleCreateProject} className="space-y-6">
                     <div className="grid grid-cols-2 gap-6">
                        <div className="space-y-1">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">Nome do Projeto</label>
-                          <input required value={projName} onChange={e => setProjName(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" />
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nome do Projeto</label>
+                          <input required value={projName} onChange={e => setProjName(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 transition-all" />
                        </div>
                        <div className="space-y-1">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">Cliente / Órgão</label>
-                          <input required value={projClient} onChange={e => setProjClient(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" />
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cliente / Órgão</label>
+                          <input required value={projClient} onChange={e => setProjClient(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 transition-all" />
                        </div>
                     </div>
                     <div className="grid grid-cols-2 gap-6">
                        <div className="space-y-1">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">Valor Global R$</label>
-                          <input required type="number" value={projBudget} onChange={e => setProjBudget(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none" />
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor Global (R$)</label>
+                          <input required type="number" value={projBudget} onChange={e => setProjBudget(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-black outline-none focus:border-blue-500 transition-all" />
                        </div>
                        <div className="space-y-1">
-                          <label className="text-[10px] font-black text-slate-400 uppercase">Data Início</label>
-                          <input required type="date" value={projDate} onChange={e => setProjDate(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" />
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data Início</label>
+                          <input required type="date" value={projDate} onChange={e => setProjDate(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 transition-all" />
                        </div>
                     </div>
-                    <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase shadow-xl hover:bg-blue-500 transition-all flex items-center justify-center gap-3">
+                    <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase shadow-xl hover:bg-blue-500 transition-all flex items-center justify-center gap-3 shrink-0">
                        <Save size={20} /> Salvar Obra e Lançamentos
                     </button>
                  </form>

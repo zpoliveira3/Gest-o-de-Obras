@@ -46,53 +46,6 @@ export async function analyzeFinancials(projects: Project[]): Promise<string> {
   }
 }
 
-export async function analyzeInvoice(base64Data: string, mimeType: string): Promise<{
-  description: string;
-  amount: number;
-  date: string;
-  category: ExpenseCategory;
-} | null> {
-  if (!ai) return null;
-
-  const cleanBase64 = base64Data.split(',')[1] || base64Data;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: [
-        {
-          inlineData: {
-            mimeType: mimeType,
-            data: cleanBase64,
-          },
-        },
-        {
-          text: "Extraia as informações desta Nota Fiscal ou recibo de obra. Retorne apenas um objeto JSON com: 'description' (resumo do que foi comprado), 'amount' (valor total numérico), 'date' (data no formato YYYY-MM-DD) e 'category' (escolha a mais adequada entre: 'Material', 'Mão de Obra', 'Equipamentos', 'Serviços Terceiros', 'Outros')."
-        }
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            description: { type: Type.STRING },
-            amount: { type: Type.NUMBER },
-            date: { type: Type.STRING },
-            category: { type: Type.STRING }
-          },
-          required: ["description", "amount", "date", "category"]
-        }
-      }
-    });
-
-    const result = JSON.parse(response.text || "{}");
-    return result;
-  } catch (error) {
-    console.error("Erro ao analisar nota fiscal:", error);
-    return null;
-  }
-}
-
 export async function analyzeProjectDocument(base64Data: string, mimeType: string): Promise<Partial<Project> | null> {
   if (!ai) return null;
 
@@ -109,67 +62,37 @@ export async function analyzeProjectDocument(base64Data: string, mimeType: strin
           },
         },
         {
-          text: `Analise este documento de controle de gastos de obra. 
-          Extraia o máximo de informações possível para criar um novo registro de projeto.
-          Considere que o documento pode conter:
-          - Nome da obra ou medição
-          - Valor total do contrato ou previsão global
-          - Lista de receitas já recebidas (medições pagas)
-          - Lista de receitas previstas (medições a receber)
-          - Lista de gastos detalhados (Mão de Obra, Material, Impostos, etc)
+          text: `Você é um especialista em auditoria de obras. Analise este documento (PDF ou Imagem) e extraia todos os dados financeiros.
+          Procure por:
+          - Nome da Obra ou Local
+          - Cliente (Órgão Público ou Empresa)
+          - Valor Total do Contrato (Budget)
+          - Data de Início ou data do documento
+          - Itens de Despesa (Gastos com material, pessoal, impostos)
+          - Itens de Receita/Medição (O que já foi pago ou o que está previsto)
           
-          Retorne um JSON seguindo estritamente a estrutura do sistema.`
+          IMPORTANTE: Se encontrar uma lista de gastos, mapeie cada um para uma destas categorias: 'Material', 'Mão de Obra', 'Logística', 'Equipamentos', 'Impostos', 'Serviços Terceiros', 'Comissão', 'Outros'.
+          
+          Retorne ESTRITAMENTE um JSON no formato:
+          {
+            "name": string,
+            "client": string,
+            "budget": number,
+            "startDate": "YYYY-MM-DD",
+            "revenues": [{"description": string, "amount": number, "date": "YYYY-MM-DD"}],
+            "plannedRevenues": [{"description": string, "amount": number, "date": "YYYY-MM-DD"}],
+            "expenses": [{"description": string, "amount": number, "date": "YYYY-MM-DD", "category": string}]
+          }`
         }
       ],
       config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            name: { type: Type.STRING },
-            client: { type: Type.STRING },
-            budget: { type: Type.NUMBER },
-            startDate: { type: Type.STRING },
-            revenues: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  description: { type: Type.STRING },
-                  amount: { type: Type.NUMBER },
-                  date: { type: Type.STRING }
-                }
-              }
-            },
-            plannedRevenues: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  description: { type: Type.STRING },
-                  amount: { type: Type.NUMBER },
-                  date: { type: Type.STRING }
-                }
-              }
-            },
-            expenses: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  description: { type: Type.STRING },
-                  amount: { type: Type.NUMBER },
-                  date: { type: Type.STRING },
-                  category: { type: Type.STRING }
-                }
-              }
-            }
-          }
-        }
+        responseMimeType: "application/json"
       }
     });
 
-    return JSON.parse(response.text || "{}");
+    const text = response.text;
+    if (!text) return null;
+    return JSON.parse(text);
   } catch (error) {
     console.error("Erro ao analisar documento de projeto:", error);
     return null;
