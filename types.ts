@@ -17,7 +17,7 @@ export interface Expense {
   date: string;
   createdAt: string;
   category: ExpenseCategory;
-  createdBy?: string; // Nome do usuário que lançou
+  createdBy?: string;
 }
 
 export interface Revenue {
@@ -34,6 +34,8 @@ export interface Project {
   name: string;
   client: string;
   budget: number;
+  taxPercentage: number;
+  commissionPercentage: number;
   startDate: string;
   location?: string;
   status: 'Em Planejamento' | 'Em Execução' | 'Concluído' | 'Pausado';

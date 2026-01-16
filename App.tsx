@@ -5,7 +5,7 @@ import {
   BarChart3, X, Loader2, Save, FileUp, ShieldCheck, 
   LogOut, KeyRound, Building2, TrendingDown, Briefcase, 
   Coins, Receipt, RefreshCw, MapPin, PieChart as PieIcon, Users, UserPlus, Shield,
-  Calculator, Percent, Landmark, Calendar
+  Calculator, Percent, Landmark, Calendar, FileText, Filter, List
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { Project, ExpenseCategory, AuthState, User, UserRole } from './types';
@@ -22,7 +22,7 @@ const App: React.FC = () => {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [companyUsers, setCompanyUsers] = useState<User[]>([]);
-  const [activeView, setActiveView] = useState<'dashboard' | 'projects' | 'ai' | 'analytics' | 'team'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'projects' | 'ai' | 'analytics' | 'team' | 'reports'>('dashboard');
   
   // Login States
   const [loginCompany, setLoginCompany] = useState('');
@@ -35,8 +35,13 @@ const App: React.FC = () => {
   const [projName, setProjName] = useState('');
   const [projClient, setProjClient] = useState('');
   const [projBudget, setProjBudget] = useState('');
+  const [projTax, setProjTax] = useState('0');
+  const [projCommission, setProjCommission] = useState('0');
   const [projLocation, setProjLocation] = useState('');
   const [projDate, setProjDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // Filters for Reports
+  const [reportFilterProject, setReportFilterProject] = useState<string>('all');
 
   // Team Management
   const [isAddingUser, setIsAddingUser] = useState(false);
@@ -136,24 +141,51 @@ const App: React.FC = () => {
     const plannedRevenue = projects.reduce((s, p) => s + (p.plannedRevenues?.reduce((rs, r) => rs + r.amount, 0) || 0), 0);
     const expenses = projects.reduce((s, p) => s + p.expenses.reduce((es, e) => es + e.amount, 0), 0);
     
-    // Filtros por Categoria
-    const taxes = projects.reduce((s, p) => s + p.expenses.filter(e => e.category === 'Impostos').reduce((es, e) => es + e.amount, 0), 0);
-    const commissions = projects.reduce((s, p) => s + p.expenses.filter(e => e.category === 'Comissão').reduce((es, e) => es + e.amount, 0), 0);
-    
-    // Lucros
-    const plannedProfit = budget - expenses; // Lucro com base no contrato total
-    const currentProfit = revenue - expenses; // Lucro com base no que já entrou
+    let totalTaxes = 0;
+    let totalCommissions = 0;
 
-    return { budget, revenue, plannedRevenue, expenses, taxes, commissions, plannedProfit, currentProfit };
+    projects.forEach(p => {
+      const pRevenue = p.revenues.reduce((rs, r) => rs + r.amount, 0);
+      const pTax = pRevenue * (p.taxPercentage / 100);
+      const pCommission = (pRevenue - pTax) * (p.commissionPercentage / 100);
+      
+      totalTaxes += pTax;
+      totalCommissions += pCommission;
+    });
+    
+    const plannedProfit = budget - (expenses + totalTaxes + totalCommissions);
+    const currentProfit = revenue - (expenses + totalTaxes + totalCommissions);
+
+    return { 
+      budget, revenue, plannedRevenue, expenses, 
+      taxes: totalTaxes, 
+      commissions: totalCommissions, 
+      plannedProfit, currentProfit 
+    };
   }, [projects]);
+
+  const allExpensesSorted = useMemo(() => {
+    let list = projects.flatMap(p => 
+      p.expenses.map(e => ({ ...e, projectName: p.name, projectId: p.id }))
+    );
+    
+    if (reportFilterProject !== 'all') {
+      list = list.filter(e => e.projectId === reportFilterProject);
+    }
+
+    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [projects, reportFilterProject]);
 
   const chartData = useMemo(() => {
     const categories: Record<string, number> = {};
     projects.forEach(p => p.expenses.forEach(e => {
       categories[e.category] = (categories[e.category] || 0) + e.amount;
     }));
+    if (summary.taxes > 0) categories['Impostos (Calc.)'] = summary.taxes;
+    if (summary.commissions > 0) categories['Comissões (Calc.)'] = summary.commissions;
+
     return Object.entries(categories).map(([name, value]) => ({ name, value }));
-  }, [projects]);
+  }, [projects, summary]);
 
   const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
@@ -172,22 +204,18 @@ const App: React.FC = () => {
           
           <form onSubmit={handleLogin} className="space-y-5">
             {loginError && <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[11px] font-black uppercase text-center rounded-2xl">{loginError}</div>}
-            
             <div className="space-y-1">
               <label className="text-[9px] font-black text-slate-500 uppercase ml-4">ID da Empresa</label>
               <input required value={loginCompany} onChange={e => setLoginCompany(e.target.value)} placeholder="Ex: ConstruNova" className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-500" />
             </div>
-
             <div className="space-y-1">
               <label className="text-[9px] font-black text-slate-500 uppercase ml-4">Nome de Usuário</label>
               <input required value={loginUsername} onChange={e => setLoginUsername(e.target.value)} placeholder="usuario.exemplo" className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-500" />
             </div>
-
             <div className="space-y-1">
               <label className="text-[9px] font-black text-slate-500 uppercase ml-4">Senha</label>
               <input required type="password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} placeholder="••••••••" className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-500" />
             </div>
-
             <button type="submit" className="w-full py-6 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-2xl uppercase shadow-2xl transition-all mt-4">Entrar no Sistema</button>
             <p className="text-center text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-4">Primeiro acesso cria empresa master</p>
           </form>
@@ -198,13 +226,11 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen flex flex-col md:flex-row bg-slate-50 overflow-hidden font-inter text-slate-900">
-      {/* SIDEBAR */}
       <aside className="w-full md:w-80 bg-slate-900 text-white flex flex-col shrink-0 z-30 shadow-2xl">
         <div className="p-10 border-b border-slate-800 flex items-center gap-4">
           <div className="p-3 bg-blue-600 rounded-2xl"><Building2 size={24} /></div>
           <h1 className="text-xl font-black uppercase tracking-tighter">ERP<span className="text-blue-500">OBRAS</span></h1>
         </div>
-        
         <div className="px-10 py-6 border-b border-slate-800 bg-slate-800/20">
            <p className="text-[10px] font-black text-slate-500 uppercase mb-1">Logado como</p>
            <p className="font-black text-sm uppercase text-blue-400">{auth.currentUser?.fullName}</p>
@@ -213,13 +239,15 @@ const App: React.FC = () => {
               <span className="text-[9px] font-black uppercase text-slate-500">{auth.currentUser?.role}</span>
            </div>
         </div>
-
         <nav className="p-8 space-y-2 flex-1 overflow-y-auto">
           <button onClick={() => setActiveView('dashboard')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold text-sm transition-all ${activeView === 'dashboard' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <LayoutDashboard size={20} /> Dashboard
+            <LayoutDashboard size={20} /> Painel de Controle da Obra
           </button>
           <button onClick={() => setActiveView('projects')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold text-sm transition-all ${activeView === 'projects' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Briefcase size={20} /> Projetos
+          </button>
+          <button onClick={() => setActiveView('reports')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold text-sm transition-all ${activeView === 'reports' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <FileText size={20} /> Relatórios
           </button>
           {auth.currentUser?.role === 'admin' && (
             <button onClick={() => setActiveView('team')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold text-sm transition-all ${activeView === 'team' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
@@ -230,7 +258,6 @@ const App: React.FC = () => {
             <BrainCircuit size={20} /> Auditor IA
           </button>
         </nav>
-
         <div className="p-8 border-t border-slate-800">
           <button onClick={() => { localStorage.removeItem('erp_obras_auth_v3'); window.location.reload(); }} className="w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-rose-400 hover:bg-rose-500/10 font-black text-xs uppercase">
             <LogOut size={18} /> Sair do Portal
@@ -238,7 +265,6 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* CONTEÚDO */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="h-24 bg-white border-b border-slate-200 px-12 flex items-center justify-between shrink-0">
           <div>
@@ -259,16 +285,14 @@ const App: React.FC = () => {
                 <StatCard title="Total Contratos" value={formatBRL(summary.budget)} icon={<DollarSign size={24}/>} />
                 <StatCard title="Total Medido/Pago" value={formatBRL(summary.revenue)} icon={<TrendingUp size={24}/>} colorClass="bg-white border-l-4 border-emerald-500" />
                 <StatCard title="Despesas Reais" value={formatBRL(summary.expenses)} icon={<TrendingDown size={24}/>} colorClass="bg-white border-l-4 border-rose-500" />
-                <StatCard title="Lucro Bruto Atual" value={formatBRL(summary.currentProfit)} icon={<Coins size={24}/>} colorClass="bg-slate-900 text-white shadow-2xl" />
+                <StatCard title="Lucro Líquido Atual" value={formatBRL(summary.currentProfit)} icon={<Coins size={24}/>} colorClass="bg-slate-900 text-white shadow-2xl" />
               </div>
-
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
                 <StatCard title="Medição Prevista" value={formatBRL(summary.plannedRevenue)} icon={<BarChart3 size={24}/>} colorClass="bg-blue-50 border-l-4 border-blue-400" />
                 <StatCard title="Lucro Previsto" value={formatBRL(summary.plannedProfit)} icon={<Calculator size={24}/>} colorClass="bg-indigo-50 border-l-4 border-indigo-400" />
-                <StatCard title="Imposto Pago" value={formatBRL(summary.taxes)} icon={<Landmark size={24}/>} colorClass="bg-orange-50 border-l-4 border-orange-400" />
-                <StatCard title="Comissão Paga" value={formatBRL(summary.commissions)} icon={<Percent size={24}/>} colorClass="bg-amber-50 border-l-4 border-amber-400" />
+                <StatCard title="Imposto Estimado" value={formatBRL(summary.taxes)} icon={<Landmark size={24}/>} colorClass="bg-orange-50 border-l-4 border-orange-400" />
+                <StatCard title="Comissão Estimada" value={formatBRL(summary.commissions)} icon={<Percent size={24}/>} colorClass="bg-amber-50 border-l-4 border-amber-400" />
               </div>
-
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                 <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-xl">
                   <h3 className="text-xl font-black uppercase mb-8 flex items-center gap-3"><PieIcon className="text-blue-500" /> Distribuição Financeira</h3>
@@ -285,9 +309,98 @@ const App: React.FC = () => {
                 </div>
                 <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-xl flex flex-col justify-center text-center">
                     <Receipt size={48} className="text-slate-200 mx-auto mb-6" />
-                    <h3 className="text-2xl font-black text-slate-800 uppercase mb-2">Visão Executiva</h3>
-                    <p className="text-slate-400 text-xs font-bold uppercase max-w-xs mx-auto">Análise de custos e medições filtradas por impostos e comissões.</p>
+                    <h3 className="text-2xl font-black text-slate-800 uppercase mb-2">Gestão Tributária</h3>
+                    <p className="text-slate-400 text-xs font-bold uppercase max-w-xs mx-auto">Comissão calculada após desconto de impostos sobre cada medição real.</p>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {activeView === 'reports' && (
+            <div className="max-w-7xl mx-auto space-y-10 animate-in slide-in-from-right-8 duration-700 pb-20">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                  <h3 className="text-3xl font-black uppercase text-slate-800 tracking-tighter">Extrato de Despesas</h3>
+                  <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-1">Detalhamento discriminado por data e obra</p>
+                </div>
+                <div className="flex items-center gap-4 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                  <Filter size={18} className="text-slate-400 ml-2" />
+                  <select 
+                    value={reportFilterProject} 
+                    onChange={e => setReportFilterProject(e.target.value)}
+                    className="bg-transparent font-black text-[10px] uppercase outline-none text-slate-700 min-w-[150px]"
+                  >
+                    <option value="all">Todas as Obras</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-slate-900 text-white p-8 rounded-[2.5rem] shadow-xl">
+                  <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Total em Despesas</p>
+                  <p className="text-3xl font-black">{formatBRL(allExpensesSorted.reduce((s, e) => s + e.amount, 0))}</p>
+                </div>
+                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-xl flex items-center gap-5">
+                  <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl"><List size={24} /></div>
+                  <div>
+                    <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Total de Lançamentos</p>
+                    <p className="text-2xl font-black text-slate-800">{allExpensesSorted.length}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-2xl">
+                 <div className="overflow-x-auto">
+                   <table className="w-full text-left">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                         <tr>
+                            <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400">Data</th>
+                            <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400">Obra</th>
+                            <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400">Descrição</th>
+                            <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400">Categoria</th>
+                            <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-400 text-right">Valor</th>
+                         </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                         {allExpensesSorted.length > 0 ? allExpensesSorted.map(expense => (
+                           <tr key={expense.id} className="hover:bg-slate-50/80 transition-all group">
+                              <td className="px-10 py-6">
+                                <div className="flex items-center gap-3">
+                                  <div className="p-2 bg-slate-100 rounded-lg text-slate-500 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
+                                    <Calendar size={14} />
+                                  </div>
+                                  <span className="font-black text-slate-600 text-xs">
+                                    {new Date(expense.date).toLocaleDateString('pt-BR')}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-10 py-6">
+                                <span className="font-bold text-slate-900 text-xs uppercase tracking-tight">{expense.projectName}</span>
+                              </td>
+                              <td className="px-10 py-6 font-medium text-slate-500 text-xs italic">
+                                {expense.description}
+                              </td>
+                              <td className="px-10 py-6">
+                                 <span className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-full text-[9px] font-black uppercase tracking-widest border border-slate-200/50">
+                                    {expense.category}
+                                 </span>
+                              </td>
+                              <td className="px-10 py-6 text-right">
+                                 <span className="font-black text-rose-600 text-sm">{formatBRL(expense.amount)}</span>
+                              </td>
+                           </tr>
+                         )) : (
+                           <tr>
+                             <td colSpan={5} className="px-10 py-20 text-center">
+                                <Receipt size={48} className="text-slate-200 mx-auto mb-4" />
+                                <p className="text-slate-400 font-black uppercase text-xs">Nenhuma despesa encontrada para os filtros selecionados.</p>
+                             </td>
+                           </tr>
+                         )}
+                      </tbody>
+                   </table>
+                 </div>
               </div>
             </div>
           )}
@@ -303,7 +416,6 @@ const App: React.FC = () => {
                     <UserPlus size={22} /> Novo Usuário
                  </button>
               </div>
-
               <div className="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-xl">
                  <table className="w-full text-left">
                     <thead className="bg-slate-50 border-b border-slate-200">
@@ -345,29 +457,26 @@ const App: React.FC = () => {
                     <Plus size={22} /> Nova Obra
                   </button>
                 </div>
-
                 <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-10">
                   {projects.map(p => {
                     const pExpenses = p.expenses.reduce((s, e) => s + e.amount, 0);
                     const pRevenue = p.revenues.reduce((s, r) => s + r.amount, 0);
-                    const pPlanned = p.plannedRevenues?.reduce((s, r) => s + r.amount, 0) || 0;
+                    const pTaxVal = pRevenue * (p.taxPercentage / 100);
+                    const pCommVal = (pRevenue - pTaxVal) * (p.commissionPercentage / 100);
                     return (
                       <div key={p.id} className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-lg group relative overflow-hidden flex flex-col h-full">
-                        {/* BOTÃO DE DELETAR OBRA */}
                         {auth.currentUser?.role === 'admin' && (
-                          <button 
-                            onClick={() => handleDeleteProject(p.id, p.name)}
-                            className="absolute top-8 right-8 p-3 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all duration-300"
-                            title="Excluir Obra"
-                          >
+                          <button onClick={() => handleDeleteProject(p.id, p.name)} className="absolute top-8 right-8 p-3 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all duration-300" title="Excluir Obra">
                             <Trash2 size={20} />
                           </button>
                         )}
-
                         <div className="flex-1">
                           <h4 className="font-black text-xl uppercase mb-1 text-slate-800 pr-10">{p.name}</h4>
+                          <div className="flex gap-4 mb-4">
+                             <div className="text-[9px] font-black uppercase bg-slate-100 px-2 py-1 rounded text-slate-500">Imp: {p.taxPercentage}%</div>
+                             <div className="text-[9px] font-black uppercase bg-slate-100 px-2 py-1 rounded text-slate-500">Com: {p.commissionPercentage}%</div>
+                          </div>
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2"><MapPin size={12} /> {p.location || 'Local indefinido'}</p>
-                          
                           <div className="grid grid-cols-1 gap-3 mb-8">
                             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center">
                                <p className="text-[9px] font-black text-slate-400 uppercase">Gasto Atual</p>
@@ -377,13 +486,12 @@ const App: React.FC = () => {
                                <p className="text-[9px] font-black text-emerald-600 uppercase">Recebido</p>
                                <p className="font-black text-emerald-700 text-sm">{formatBRL(pRevenue)}</p>
                             </div>
-                            <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100 flex justify-between items-center">
-                               <p className="text-[9px] font-black text-blue-600 uppercase">Medição Prevista</p>
-                               <p className="font-black text-blue-700 text-sm">{formatBRL(pPlanned)}</p>
+                            <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex justify-between items-center">
+                               <p className="text-[9px] font-black text-amber-600 uppercase">Impostos + Comissões</p>
+                               <p className="font-black text-amber-700 text-sm">{formatBRL(pTaxVal + pCommVal)}</p>
                             </div>
                           </div>
                         </div>
-
                         <div className="grid grid-cols-2 gap-2 mt-auto">
                           <button onClick={() => {
                             setTransactionModal({ isOpen: true, projectId: p.id, type: 'expense' });
@@ -438,6 +546,127 @@ const App: React.FC = () => {
         </div>
       </main>
 
+      {/* MODAL: NOVA OBRA */}
+      {isAddingProject && (
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-8 overflow-y-auto">
+           <div className="bg-white rounded-[3.5rem] shadow-2xl w-full max-w-3xl overflow-hidden animate-in zoom-in-95 duration-500 my-auto">
+              <div className="p-10 bg-blue-600 text-white flex justify-between items-center">
+                 <h3 className="text-2xl font-black uppercase tracking-tight">Cadastro de Obra</h3>
+                 <button onClick={() => setIsAddingProject(false)} className="p-3 hover:bg-white/10 rounded-full transition-all"><X size={32} /></button>
+              </div>
+              <div className="p-12 space-y-8">
+                 <form onSubmit={(e) => {
+                    e.preventDefault();
+                    const newP: Project = {
+                      id: crypto.randomUUID(), name: projName, client: projClient, budget: Number(projBudget),
+                      taxPercentage: Number(projTax), commissionPercentage: Number(projCommission),
+                      startDate: projDate, location: projLocation, status: 'Em Execução', 
+                      expenses: [], revenues: [], plannedRevenues: []
+                    };
+                    setProjects([...projects, newP]);
+                    setIsAddingProject(false);
+                    setProjName(''); setProjClient(''); setProjBudget(''); setProjTax('0'); setProjCommission('0');
+                 }} className="space-y-6">
+                    <div className="grid grid-cols-2 gap-6">
+                       <input required placeholder="Obra / Projeto" value={projName} onChange={e => setProjName(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                       <input required placeholder="Contratante" value={projClient} onChange={e => setProjClient(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                    </div>
+                    <input placeholder="Endereço / Local" value={projLocation} onChange={e => setProjLocation(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                    <div className="grid grid-cols-3 gap-6">
+                       <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Valor Global</label>
+                          <input required type="number" step="0.01" value={projBudget} onChange={e => setProjBudget(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black" />
+                       </div>
+                       <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Imposto (%)</label>
+                          <input required type="number" step="0.01" value={projTax} onChange={e => setProjTax(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-orange-600" />
+                       </div>
+                       <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Comissão (%)</label>
+                          <input required type="number" step="0.01" value={projCommission} onChange={e => setProjCommission(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-amber-600" />
+                       </div>
+                    </div>
+                    <div className="space-y-1">
+                       <label className="text-[9px] font-black text-slate-400 uppercase ml-4">Data de Início</label>
+                       <input required type="date" value={projDate} onChange={e => setProjDate(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                    </div>
+                    <button type="submit" className="w-full py-7 bg-blue-600 text-white font-black rounded-3xl uppercase shadow-2xl flex items-center justify-center gap-4"><Save size={24} /> Registrar Obra</button>
+                 </form>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* MODAL: LANÇAMENTO FINANCEIRO */}
+      {transactionModal.isOpen && (
+         <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-8">
+            <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-300">
+               <div className={`p-10 text-white flex justify-between items-center ${
+                 transactionModal.type === 'expense' ? 'bg-slate-900' : 
+                 transactionModal.type === 'revenue' ? 'bg-emerald-600' : 'bg-blue-600'
+               }`}>
+                  <h3 className="text-2xl font-black uppercase">
+                    {transactionModal.type === 'expense' ? 'Nova Despesa' : 
+                     transactionModal.type === 'revenue' ? 'Medição Realizada' : 'Medição Prevista'}
+                  </h3>
+                  <button onClick={() => setTransactionModal({ isOpen: false, projectId: null, type: 'expense' })} className="p-4 hover:bg-white/15 rounded-full"><X size={32} /></button>
+               </div>
+               <form onSubmit={(e) => {
+                  e.preventDefault();
+                  setProjects(projects.map(p => {
+                    if (p.id !== transactionModal.projectId) return p;
+                    const item = { 
+                      id: crypto.randomUUID(), description: formDesc, amount: Number(formVal), 
+                      date: formDateInput, createdAt: new Date().toISOString(),
+                      createdBy: auth.currentUser?.fullName
+                    };
+                    if (transactionModal.type === 'expense') return { ...p, expenses: [...p.expenses, { ...item, category: formCat }] };
+                    if (transactionModal.type === 'revenue') return { ...p, revenues: [...p.revenues, item] };
+                    const updatedPlanned = p.plannedRevenues || [];
+                    return { ...p, plannedRevenues: [...updatedPlanned, item] };
+                  }));
+                  setTransactionModal({ isOpen: false, projectId: null, type: 'expense' });
+                  setFormDesc(''); setFormVal('');
+               }} className="p-10 space-y-6">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Data do Lançamento</label>
+                    <div className="relative">
+                       <Calendar className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                       <input required type="date" value={formDateInput} onChange={e => setFormDateInput(e.target.value)} className="w-full p-5 pl-14 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all" />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Descrição</label>
+                    <input required placeholder="Ex: Compra de Cimento, NF 044..." value={formDesc} onChange={e => setFormDesc(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:border-blue-500" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Valor R$</label>
+                    <input required type="number" step="0.01" placeholder="0,00" value={formVal} onChange={e => setFormVal(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none focus:border-blue-500" />
+                  </div>
+                  {transactionModal.type === 'expense' && (
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Categoria de Custo</label>
+                      <select value={formCat} onChange={e => setFormCat(e.target.value as any)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black uppercase outline-none focus:border-blue-500">
+                        <option value="Material">Material</option>
+                        <option value="Mão de Obra">Mão de Obra</option>
+                        <option value="Logística">Logística</option>
+                        <option value="Equipamentos">Equipamentos</option>
+                        <option value="Impostos">Impostos</option>
+                        <option value="Comissão">Comissão</option>
+                        <option value="Serviços Terceiros">Serviços Terceiros</option>
+                        <option value="Outros">Outros</option>
+                      </select>
+                    </div>
+                  )}
+                  <button type="submit" className={`w-full py-6 text-white font-black rounded-2xl uppercase shadow-xl transition-all ${
+                    transactionModal.type === 'expense' ? 'bg-slate-900' : 
+                    transactionModal.type === 'revenue' ? 'bg-emerald-600' : 'bg-blue-600'
+                  }`}>Confirmar Registro</button>
+               </form>
+            </div>
+         </div>
+      )}
+
       {/* MODAL: NOVO USUÁRIO */}
       {isAddingUser && (
         <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-8">
@@ -473,121 +702,6 @@ const App: React.FC = () => {
               </form>
            </div>
         </div>
-      )}
-
-      {/* MODAL: NOVA OBRA */}
-      {isAddingProject && (
-        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-8 overflow-y-auto">
-           <div className="bg-white rounded-[3.5rem] shadow-2xl w-full max-w-3xl overflow-hidden animate-in zoom-in-95 duration-500 my-auto">
-              <div className="p-10 bg-blue-600 text-white flex justify-between items-center">
-                 <h3 className="text-2xl font-black uppercase tracking-tight">Cadastro de Obra</h3>
-                 <button onClick={() => setIsAddingProject(false)} className="p-3 hover:bg-white/10 rounded-full transition-all"><X size={32} /></button>
-              </div>
-              <div className="p-12 space-y-8">
-                 <form onSubmit={(e) => {
-                    e.preventDefault();
-                    const newP: Project = {
-                      id: crypto.randomUUID(), name: projName, client: projClient, budget: Number(projBudget),
-                      startDate: projDate, location: projLocation, status: 'Em Execução', expenses: [], revenues: [], plannedRevenues: []
-                    };
-                    setProjects([...projects, newP]);
-                    setIsAddingProject(false);
-                 }} className="space-y-6">
-                    <div className="grid grid-cols-2 gap-6">
-                       <input required placeholder="Obra / Projeto" value={projName} onChange={e => setProjName(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                       <input required placeholder="Contratante" value={projClient} onChange={e => setProjClient(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                    </div>
-                    <input placeholder="Endereço / Local" value={projLocation} onChange={e => setProjLocation(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                    <div className="grid grid-cols-2 gap-6">
-                       <input required type="number" step="0.01" placeholder="Valor Global" value={projBudget} onChange={e => setProjBudget(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xl" />
-                       <input required type="date" value={projDate} onChange={e => setProjDate(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                    </div>
-                    <button type="submit" className="w-full py-7 bg-blue-600 text-white font-black rounded-3xl uppercase shadow-2xl flex items-center justify-center gap-4">
-                       <Save size={24} /> Registrar Obra
-                    </button>
-                 </form>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* MODAL: LANÇAMENTO FINANCEIRO */}
-      {transactionModal.isOpen && (
-         <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-8">
-            <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-300">
-               <div className={`p-10 text-white flex justify-between items-center ${
-                 transactionModal.type === 'expense' ? 'bg-slate-900' : 
-                 transactionModal.type === 'revenue' ? 'bg-emerald-600' : 'bg-blue-600'
-               }`}>
-                  <h3 className="text-2xl font-black uppercase">
-                    {transactionModal.type === 'expense' ? 'Nova Despesa' : 
-                     transactionModal.type === 'revenue' ? 'Medição Realizada' : 'Medição Prevista'}
-                  </h3>
-                  <button onClick={() => setTransactionModal({ isOpen: false, projectId: null, type: 'expense' })} className="p-4 hover:bg-white/15 rounded-full"><X size={32} /></button>
-               </div>
-               <form onSubmit={(e) => {
-                  e.preventDefault();
-                  setProjects(projects.map(p => {
-                    if (p.id !== transactionModal.projectId) return p;
-                    const item = { 
-                      id: crypto.randomUUID(), 
-                      description: formDesc, 
-                      amount: Number(formVal), 
-                      date: formDateInput, 
-                      createdAt: new Date().toISOString(),
-                      createdBy: auth.currentUser?.fullName
-                    };
-                    if (transactionModal.type === 'expense') return { ...p, expenses: [...p.expenses, { ...item, category: formCat }] };
-                    if (transactionModal.type === 'revenue') return { ...p, revenues: [...p.revenues, item] };
-                    const updatedPlanned = p.plannedRevenues || [];
-                    return { ...p, plannedRevenues: [...updatedPlanned, item] };
-                  }));
-                  setTransactionModal({ isOpen: false, projectId: null, type: 'expense' });
-                  setFormDesc(''); setFormVal('');
-               }} className="p-10 space-y-6">
-                  
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Data do Lançamento</label>
-                    <div className="relative">
-                       <Calendar className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
-                       <input required type="date" value={formDateInput} onChange={e => setFormDateInput(e.target.value)} className="w-full p-5 pl-14 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all" />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Descrição</label>
-                    <input required placeholder="Ex: Compra de Cimento, NF 044..." value={formDesc} onChange={e => setFormDesc(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:border-blue-500" />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Valor R$</label>
-                    <input required type="number" step="0.01" placeholder="0,00" value={formVal} onChange={e => setFormVal(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none focus:border-blue-500" />
-                  </div>
-
-                  {transactionModal.type === 'expense' && (
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Categoria de Custo</label>
-                      <select value={formCat} onChange={e => setFormCat(e.target.value as any)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black uppercase outline-none focus:border-blue-500">
-                        <option value="Material">Material</option>
-                        <option value="Mão de Obra">Mão de Obra</option>
-                        <option value="Logística">Logística</option>
-                        <option value="Equipamentos">Equipamentos</option>
-                        <option value="Impostos">Impostos</option>
-                        <option value="Comissão">Comissão</option>
-                        <option value="Serviços Terceiros">Serviços Terceiros</option>
-                        <option value="Outros">Outros</option>
-                      </select>
-                    </div>
-                  )}
-                  <button type="submit" className={`w-full py-6 text-white font-black rounded-2xl uppercase shadow-xl transition-all ${
-                    transactionModal.type === 'expense' ? 'bg-slate-900' : 
-                    transactionModal.type === 'revenue' ? 'bg-emerald-600' : 'bg-blue-600'
-                  }`}>
-                    Confirmar Registro
-                  </button>
-               </form>
-            </div>
-         </div>
       )}
     </div>
   );
