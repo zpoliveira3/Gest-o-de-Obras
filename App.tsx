@@ -5,7 +5,7 @@ import {
   BarChart3, X, Loader2, Save, FileUp, ShieldCheck, 
   LogOut, KeyRound, Building2, TrendingDown, Briefcase, 
   Coins, Receipt, RefreshCw, MapPin, PieChart as PieIcon, Users, UserPlus, Shield,
-  Calculator, Percent, Landmark
+  Calculator, Percent, Landmark, Calendar
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { Project, ExpenseCategory, AuthState, User, UserRole } from './types';
@@ -57,6 +57,7 @@ const App: React.FC = () => {
   });
   const [formDesc, setFormDesc] = useState('');
   const [formVal, setFormVal] = useState('');
+  const [formDateInput, setFormDateInput] = useState(new Date().toISOString().split('T')[0]);
   const [formCat, setFormCat] = useState<ExpenseCategory>('Material');
 
   // Carregar dados da empresa logada
@@ -121,6 +122,12 @@ const App: React.FC = () => {
     setCompanyUsers([...companyUsers, newUser]);
     setIsAddingUser(false);
     setNewUserName(''); setNewUserFullName(''); setNewUserPass('');
+  };
+
+  const handleDeleteProject = (projectId: string, projectName: string) => {
+    if (window.confirm(`ATENÇÃO: Você tem certeza que deseja excluir a obra "${projectName}"? Todos os lançamentos financeiros serão perdidos permanentemente.`)) {
+      setProjects(projects.filter(p => p.id !== projectId));
+    }
   };
 
   const summary = useMemo(() => {
@@ -248,7 +255,6 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-12 bg-slate-50/50">
           {activeView === 'dashboard' && (
             <div className="max-w-7xl mx-auto space-y-12 animate-in fade-in duration-700 pb-20">
-              {/* Linha 1: Principais Financeiros */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
                 <StatCard title="Total Contratos" value={formatBRL(summary.budget)} icon={<DollarSign size={24}/>} />
                 <StatCard title="Total Medido/Pago" value={formatBRL(summary.revenue)} icon={<TrendingUp size={24}/>} colorClass="bg-white border-l-4 border-emerald-500" />
@@ -256,7 +262,6 @@ const App: React.FC = () => {
                 <StatCard title="Lucro Bruto Atual" value={formatBRL(summary.currentProfit)} icon={<Coins size={24}/>} colorClass="bg-slate-900 text-white shadow-2xl" />
               </div>
 
-              {/* Linha 2: Previsões e Obrigações (SOLICITAÇÃO DO USUÁRIO) */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
                 <StatCard title="Medição Prevista" value={formatBRL(summary.plannedRevenue)} icon={<BarChart3 size={24}/>} colorClass="bg-blue-50 border-l-4 border-blue-400" />
                 <StatCard title="Lucro Previsto" value={formatBRL(summary.plannedProfit)} icon={<Calculator size={24}/>} colorClass="bg-indigo-50 border-l-4 border-indigo-400" />
@@ -347,30 +352,52 @@ const App: React.FC = () => {
                     const pRevenue = p.revenues.reduce((s, r) => s + r.amount, 0);
                     const pPlanned = p.plannedRevenues?.reduce((s, r) => s + r.amount, 0) || 0;
                     return (
-                      <div key={p.id} className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-lg group relative overflow-hidden">
-                        <h4 className="font-black text-xl uppercase mb-1 text-slate-800">{p.name}</h4>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2"><MapPin size={12} /> {p.location || 'Local indefinido'}</p>
-                        
-                        <div className="grid grid-cols-1 gap-3 mb-8">
-                          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center">
-                             <p className="text-[9px] font-black text-slate-400 uppercase">Gasto Atual</p>
-                             <p className="font-black text-rose-600 text-sm">{formatBRL(pExpenses)}</p>
-                          </div>
-                          <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex justify-between items-center">
-                             <p className="text-[9px] font-black text-emerald-600 uppercase">Recebido</p>
-                             <p className="font-black text-emerald-700 text-sm">{formatBRL(pRevenue)}</p>
-                          </div>
-                          <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100 flex justify-between items-center">
-                             <p className="text-[9px] font-black text-blue-600 uppercase">Medição Prevista</p>
-                             <p className="font-black text-blue-700 text-sm">{formatBRL(pPlanned)}</p>
+                      <div key={p.id} className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-lg group relative overflow-hidden flex flex-col h-full">
+                        {/* BOTÃO DE DELETAR OBRA */}
+                        {auth.currentUser?.role === 'admin' && (
+                          <button 
+                            onClick={() => handleDeleteProject(p.id, p.name)}
+                            className="absolute top-8 right-8 p-3 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all duration-300"
+                            title="Excluir Obra"
+                          >
+                            <Trash2 size={20} />
+                          </button>
+                        )}
+
+                        <div className="flex-1">
+                          <h4 className="font-black text-xl uppercase mb-1 text-slate-800 pr-10">{p.name}</h4>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2"><MapPin size={12} /> {p.location || 'Local indefinido'}</p>
+                          
+                          <div className="grid grid-cols-1 gap-3 mb-8">
+                            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center">
+                               <p className="text-[9px] font-black text-slate-400 uppercase">Gasto Atual</p>
+                               <p className="font-black text-rose-600 text-sm">{formatBRL(pExpenses)}</p>
+                            </div>
+                            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex justify-between items-center">
+                               <p className="text-[9px] font-black text-emerald-600 uppercase">Recebido</p>
+                               <p className="font-black text-emerald-700 text-sm">{formatBRL(pRevenue)}</p>
+                            </div>
+                            <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100 flex justify-between items-center">
+                               <p className="text-[9px] font-black text-blue-600 uppercase">Medição Prevista</p>
+                               <p className="font-black text-blue-700 text-sm">{formatBRL(pPlanned)}</p>
+                            </div>
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2">
-                          <button onClick={() => setTransactionModal({ isOpen: true, projectId: p.id, type: 'expense' })} className="py-4 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase">Custo</button>
+                        <div className="grid grid-cols-2 gap-2 mt-auto">
+                          <button onClick={() => {
+                            setTransactionModal({ isOpen: true, projectId: p.id, type: 'expense' });
+                            setFormDateInput(new Date().toISOString().split('T')[0]);
+                          }} className="py-4 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase">Custo</button>
                           <div className="grid grid-cols-1 gap-1">
-                            <button onClick={() => setTransactionModal({ isOpen: true, projectId: p.id, type: 'revenue' })} className="py-2 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase">Recebido</button>
-                            <button onClick={() => setTransactionModal({ isOpen: true, projectId: p.id, type: 'planned_revenue' })} className="py-2 bg-blue-600 text-white rounded-lg text-[9px] font-black uppercase">Previsto</button>
+                            <button onClick={() => {
+                              setTransactionModal({ isOpen: true, projectId: p.id, type: 'revenue' });
+                              setFormDateInput(new Date().toISOString().split('T')[0]);
+                            }} className="py-2 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase">Recebido</button>
+                            <button onClick={() => {
+                              setTransactionModal({ isOpen: true, projectId: p.id, type: 'planned_revenue' });
+                              setFormDateInput(new Date().toISOString().split('T')[0]);
+                            }} className="py-2 bg-blue-600 text-white rounded-lg text-[9px] font-black uppercase">Previsto</button>
                           </div>
                         </div>
                       </div>
@@ -453,7 +480,7 @@ const App: React.FC = () => {
         <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-8 overflow-y-auto">
            <div className="bg-white rounded-[3.5rem] shadow-2xl w-full max-w-3xl overflow-hidden animate-in zoom-in-95 duration-500 my-auto">
               <div className="p-10 bg-blue-600 text-white flex justify-between items-center">
-                 <h3 className="text-2xl font-black uppercase tracking-tight">Cadastro de Obra Pública/Privada</h3>
+                 <h3 className="text-2xl font-black uppercase tracking-tight">Cadastro de Obra</h3>
                  <button onClick={() => setIsAddingProject(false)} className="p-3 hover:bg-white/10 rounded-full transition-all"><X size={32} /></button>
               </div>
               <div className="p-12 space-y-8">
@@ -468,11 +495,11 @@ const App: React.FC = () => {
                  }} className="space-y-6">
                     <div className="grid grid-cols-2 gap-6">
                        <input required placeholder="Obra / Projeto" value={projName} onChange={e => setProjName(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                       <input required placeholder="Contratante (Ex: Prefeitura)" value={projClient} onChange={e => setProjClient(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                       <input required placeholder="Contratante" value={projClient} onChange={e => setProjClient(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
                     </div>
                     <input placeholder="Endereço / Local" value={projLocation} onChange={e => setProjLocation(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
                     <div className="grid grid-cols-2 gap-6">
-                       <input required type="number" step="0.01" placeholder="Valor Global (Contrato)" value={projBudget} onChange={e => setProjBudget(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xl" />
+                       <input required type="number" step="0.01" placeholder="Valor Global" value={projBudget} onChange={e => setProjBudget(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xl" />
                        <input required type="date" value={projDate} onChange={e => setProjDate(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
                     </div>
                     <button type="submit" className="w-full py-7 bg-blue-600 text-white font-black rounded-3xl uppercase shadow-2xl flex items-center justify-center gap-4">
@@ -484,7 +511,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: LANÇAMENTO FINANCEIRO (EXPANDIDO PARA PREVISÕES) */}
+      {/* MODAL: LANÇAMENTO FINANCEIRO */}
       {transactionModal.isOpen && (
          <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-8">
             <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-300">
@@ -506,32 +533,51 @@ const App: React.FC = () => {
                       id: crypto.randomUUID(), 
                       description: formDesc, 
                       amount: Number(formVal), 
-                      date: new Date().toISOString().split('T')[0], 
+                      date: formDateInput, 
                       createdAt: new Date().toISOString(),
                       createdBy: auth.currentUser?.fullName
                     };
                     if (transactionModal.type === 'expense') return { ...p, expenses: [...p.expenses, { ...item, category: formCat }] };
                     if (transactionModal.type === 'revenue') return { ...p, revenues: [...p.revenues, item] };
-                    // Caso seja planned_revenue
                     const updatedPlanned = p.plannedRevenues || [];
                     return { ...p, plannedRevenues: [...updatedPlanned, item] };
                   }));
                   setTransactionModal({ isOpen: false, projectId: null, type: 'expense' });
                   setFormDesc(''); setFormVal('');
                }} className="p-10 space-y-6">
-                  <input required placeholder="Descrição (Ex: NF 123, 1ª Medição...)" value={formDesc} onChange={e => setFormDesc(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
-                  <input required type="number" step="0.01" placeholder="Valor R$" value={formVal} onChange={e => setFormVal(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl" />
+                  
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Data do Lançamento</label>
+                    <div className="relative">
+                       <Calendar className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                       <input required type="date" value={formDateInput} onChange={e => setFormDateInput(e.target.value)} className="w-full p-5 pl-14 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Descrição</label>
+                    <input required placeholder="Ex: Compra de Cimento, NF 044..." value={formDesc} onChange={e => setFormDesc(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:border-blue-500" />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Valor R$</label>
+                    <input required type="number" step="0.01" placeholder="0,00" value={formVal} onChange={e => setFormVal(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl outline-none focus:border-blue-500" />
+                  </div>
+
                   {transactionModal.type === 'expense' && (
-                    <select value={formCat} onChange={e => setFormCat(e.target.value as any)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black uppercase">
-                      <option value="Material">Material</option>
-                      <option value="Mão de Obra">Mão de Obra</option>
-                      <option value="Logística">Logística</option>
-                      <option value="Equipamentos">Equipamentos</option>
-                      <option value="Impostos">Impostos</option>
-                      <option value="Comissão">Comissão</option>
-                      <option value="Serviços Terceiros">Serviços Terceiros</option>
-                      <option value="Outros">Outros</option>
-                    </select>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase ml-4">Categoria de Custo</label>
+                      <select value={formCat} onChange={e => setFormCat(e.target.value as any)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-black uppercase outline-none focus:border-blue-500">
+                        <option value="Material">Material</option>
+                        <option value="Mão de Obra">Mão de Obra</option>
+                        <option value="Logística">Logística</option>
+                        <option value="Equipamentos">Equipamentos</option>
+                        <option value="Impostos">Impostos</option>
+                        <option value="Comissão">Comissão</option>
+                        <option value="Serviços Terceiros">Serviços Terceiros</option>
+                        <option value="Outros">Outros</option>
+                      </select>
+                    </div>
                   )}
                   <button type="submit" className={`w-full py-6 text-white font-black rounded-2xl uppercase shadow-xl transition-all ${
                     transactionModal.type === 'expense' ? 'bg-slate-900' : 
