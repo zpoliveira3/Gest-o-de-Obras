@@ -11,7 +11,8 @@ export interface Expense {
   id: string;
   description: string;
   amount: number;
-  date: string;
+  date: string; // Data da competência (NF/Recibo)
+  createdAt: string; // Data real do lançamento no sistema
   category: ExpenseCategory;
   invoiceNumber?: string;
   attachment?: Attachment;
@@ -21,7 +22,8 @@ export interface Revenue {
   id: string;
   description: string;
   amount: number;
-  date: string;
+  date: string; // Data do recebimento/previsão
+  createdAt: string; // Data real do lançamento no sistema
 }
 
 export interface Project {

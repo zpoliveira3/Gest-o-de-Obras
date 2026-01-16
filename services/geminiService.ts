@@ -54,7 +54,6 @@ export async function analyzeInvoice(base64Data: string, mimeType: string): Prom
 } | null> {
   if (!ai) return null;
 
-  // Remover o prefixo data:image/...;base64, se existir
   const cleanBase64 = base64Data.split(',')[1] || base64Data;
 
   try {
@@ -90,6 +89,89 @@ export async function analyzeInvoice(base64Data: string, mimeType: string): Prom
     return result;
   } catch (error) {
     console.error("Erro ao analisar nota fiscal:", error);
+    return null;
+  }
+}
+
+export async function analyzeProjectDocument(base64Data: string, mimeType: string): Promise<Partial<Project> | null> {
+  if (!ai) return null;
+
+  const cleanBase64 = base64Data.split(',')[1] || base64Data;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        {
+          inlineData: {
+            mimeType: mimeType,
+            data: cleanBase64,
+          },
+        },
+        {
+          text: `Analise este documento de controle de gastos de obra. 
+          Extraia o máximo de informações possível para criar um novo registro de projeto.
+          Considere que o documento pode conter:
+          - Nome da obra ou medição
+          - Valor total do contrato ou previsão global
+          - Lista de receitas já recebidas (medições pagas)
+          - Lista de receitas previstas (medições a receber)
+          - Lista de gastos detalhados (Mão de Obra, Material, Impostos, etc)
+          
+          Retorne um JSON seguindo estritamente a estrutura do sistema.`
+        }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            client: { type: Type.STRING },
+            budget: { type: Type.NUMBER },
+            startDate: { type: Type.STRING },
+            revenues: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  description: { type: Type.STRING },
+                  amount: { type: Type.NUMBER },
+                  date: { type: Type.STRING }
+                }
+              }
+            },
+            plannedRevenues: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  description: { type: Type.STRING },
+                  amount: { type: Type.NUMBER },
+                  date: { type: Type.STRING }
+                }
+              }
+            },
+            expenses: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  description: { type: Type.STRING },
+                  amount: { type: Type.NUMBER },
+                  date: { type: Type.STRING },
+                  category: { type: Type.STRING }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return JSON.parse(response.text || "{}");
+  } catch (error) {
+    console.error("Erro ao analisar documento de projeto:", error);
     return null;
   }
 }
