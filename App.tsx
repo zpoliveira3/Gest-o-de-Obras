@@ -25,7 +25,8 @@ import {
   Briefcase,
   Coins,
   Receipt,
-  RefreshCw
+  RefreshCw,
+  Settings
 } from 'lucide-react';
 import { Project, ExpenseCategory, AuthState, Revenue, Expense } from './types';
 import { StatCard } from './components/StatCard';
@@ -36,9 +37,9 @@ const App: React.FC = () => {
   const [auth, setAuth] = useState<AuthState>(() => {
     try {
       const saved = localStorage.getItem('erp_obras_auth_v2');
-      return saved ? JSON.parse(saved) : { isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin' };
+      return saved ? JSON.parse(saved) : { isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin', password: '' };
     } catch {
-      return { isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin' };
+      return { isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin', password: '' };
     }
   });
 
@@ -48,6 +49,7 @@ const App: React.FC = () => {
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [isProcessingDoc, setIsProcessingDoc] = useState(false);
   const [docStatus, setDocStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   // --- FORMULÁRIOS ---
   const [loginCompany, setLoginCompany] = useState('');
@@ -57,6 +59,12 @@ const App: React.FC = () => {
   const [projBudget, setProjBudget] = useState('');
   const [projDate, setProjDate] = useState(new Date().toISOString().split('T')[0]);
   const [extractedData, setExtractedData] = useState<Partial<Project> | null>(null);
+
+  // --- ALTERAR SENHA ---
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
   const [formDesc, setFormDesc] = useState('');
   const [formVal, setFormVal] = useState('');
@@ -97,11 +105,38 @@ const App: React.FC = () => {
   const handleLogout = () => {
     if (window.confirm("Deseja realmente encerrar a sessão?")) {
       localStorage.removeItem('erp_obras_auth_v2');
-      setAuth({ isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin' });
+      setAuth({ isLoggedIn: false, companyName: '', companyKey: '', userRole: 'admin', password: '' });
       setProjects([]);
       setAiReport('');
       setActiveView('dashboard');
     }
+  };
+
+  const handlePasswordChange = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError('');
+
+    if (oldPassword !== auth.password) {
+      setPasswordError('A senha atual está incorreta.');
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      setPasswordError('As novas senhas não coincidem.');
+      return;
+    }
+
+    if (newPassword.length < 4) {
+      setPasswordError('A nova senha deve ter pelo menos 4 caracteres.');
+      return;
+    }
+
+    setAuth(prev => ({ ...prev, password: newPassword }));
+    alert('Senha alterada com sucesso!');
+    setIsSettingsOpen(false);
+    setOldPassword('');
+    setNewPassword('');
+    setConfirmNewPassword('');
   };
 
   const triggerAiAuditoria = async () => {
@@ -201,10 +236,10 @@ const App: React.FC = () => {
           <form onSubmit={(e) => { 
             e.preventDefault(); 
             const key = loginCompany.toLowerCase().trim().replace(/\s+/g, '_');
-            setAuth({ isLoggedIn: true, companyName: loginCompany, companyKey: key, userRole: 'admin' });
+            setAuth({ isLoggedIn: true, companyName: loginCompany, companyKey: key, userRole: 'admin', password: loginKey });
           }} className="space-y-6">
             <input required value={loginCompany} onChange={e => setLoginCompany(e.target.value)} placeholder="Sua Empresa" className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-500 font-medium" />
-            <input required type="password" value={loginKey} onChange={e => setLoginKey(e.target.value)} placeholder="Chave de Acesso" className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-500" />
+            <input required type="password" value={loginKey} onChange={e => setLoginKey(e.target.value)} placeholder="Sua Senha de Acesso" className="w-full p-5 bg-white/5 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-500" />
             <button type="submit" className="w-full py-6 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-[2rem] uppercase shadow-2xl transition-all">Entrar no Sistema</button>
           </form>
         </div>
@@ -228,6 +263,9 @@ const App: React.FC = () => {
           </button>
           <button onClick={() => { setActiveView('ai'); triggerAiAuditoria(); }} className={`w-full flex items-center gap-5 px-6 py-5 rounded-[1.5rem] font-bold text-sm transition-all ${activeView === 'ai' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <BrainCircuit size={22} /> Auditor IA
+          </button>
+          <button onClick={() => setIsSettingsOpen(true)} className={`w-full flex items-center gap-5 px-6 py-5 rounded-[1.5rem] font-bold text-sm transition-all text-slate-400 hover:bg-slate-800`}>
+            <Settings size={22} /> Alterar Senha
           </button>
         </nav>
         <div className="p-8 border-t border-slate-800 bg-slate-900/50">
@@ -332,7 +370,6 @@ const App: React.FC = () => {
                 {projects.map(p => {
                   const pExpenses = p.expenses.reduce((s, e) => s + e.amount, 0);
                   const pRevenue = p.revenues.reduce((s, r) => s + r.amount, 0);
-                  const profit = p.budget - pExpenses;
                   return (
                     <div key={p.id} className="bg-white rounded-[3rem] border border-slate-200 p-10 shadow-lg group relative overflow-hidden">
                       <button onClick={() => setProjects(prev => prev.filter(x => x.id !== p.id))} className="absolute top-10 right-10 text-slate-200 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={22} /></button>
@@ -362,6 +399,41 @@ const App: React.FC = () => {
           )}
         </div>
       </main>
+
+      {/* MODAL: CONFIGURAÇÕES / ALTERAR SENHA */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl z-[100] flex items-center justify-center p-8">
+           <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-300">
+              <div className="p-10 bg-slate-900 text-white flex justify-between items-center shadow-lg">
+                 <div className="flex items-center gap-4">
+                    <KeyRound size={28} className="text-blue-500" />
+                    <h3 className="text-xl font-black uppercase tracking-tight">Segurança / Alterar Senha</h3>
+                 </div>
+                 <button onClick={() => setIsSettingsOpen(false)} className="p-3 hover:bg-white/10 rounded-full transition-all"><X size={28} /></button>
+              </div>
+              <form onSubmit={handlePasswordChange} className="p-10 space-y-6">
+                 {passwordError && (
+                   <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 text-[11px] font-black uppercase rounded-2xl tracking-widest text-center">
+                     {passwordError}
+                   </div>
+                 )}
+                 <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-3">Senha Atual</label>
+                    <input required type="password" value={oldPassword} onChange={e => setOldPassword(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
+                 </div>
+                 <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-3">Nova Senha</label>
+                    <input required type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
+                 </div>
+                 <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase ml-3">Confirmar Nova Senha</label>
+                    <input required type="password" value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
+                 </div>
+                 <button type="submit" className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase shadow-xl hover:bg-blue-500 transition-all">Salvar Nova Senha</button>
+              </form>
+           </div>
+        </div>
+      )}
 
       {/* MODAL: NOVA OBRA */}
       {isAddingProject && (

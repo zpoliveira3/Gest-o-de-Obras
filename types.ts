@@ -43,6 +43,7 @@ export interface AuthState {
   companyName: string;
   companyKey: string;
   userRole: 'admin' | 'editor';
+  password?: string;
 }
 
 export interface SyncStatus {
