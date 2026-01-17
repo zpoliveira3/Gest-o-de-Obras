@@ -5,7 +5,7 @@ import {
   BarChart3, X, Loader2, Save, FileUp, ShieldCheck, 
   LogOut, KeyRound, Building2, TrendingDown, Briefcase, 
   Coins, Receipt, RefreshCw, MapPin, PieChart as PieIcon, Users, UserPlus, Shield,
-  Calculator, Percent, Landmark, Calendar, FileText, Filter, List, CheckCircle, Clock, Edit2, FileStack, HardHat, Package, Wrench, Zap, AlertCircle, Download, UploadCloud
+  Calculator, Percent, Landmark, Calendar, FileText, Filter, List, CheckCircle, Clock, Edit2, FileStack, HardHat, Package, Wrench, Zap, AlertCircle, Download, UploadCloud, Target
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { Project, ExpenseCategory, AuthState, User, UserRole, Revenue, Expense } from './types';
@@ -25,6 +25,16 @@ const App: React.FC = () => {
   const [activeView, setActiveView] = useState<'dashboard' | 'projects' | 'ai' | 'analytics' | 'team' | 'reports'>('dashboard');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
+  // Taxas Globais para o Painel
+  const [globalTaxRate, setGlobalTaxRate] = useState<number>(() => {
+    const saved = localStorage.getItem('erp_global_tax_v3');
+    return saved ? Number(saved) : 5;
+  });
+  const [globalCommRate, setGlobalCommRate] = useState<number>(() => {
+    const saved = localStorage.getItem('erp_global_comm_v3');
+    return saved ? Number(saved) : 10;
+  });
+
   // States para Formulários
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
@@ -89,8 +99,10 @@ const App: React.FC = () => {
     if (auth.isLoggedIn && auth.companyKey) {
       localStorage.setItem(`erp_data_${auth.companyKey}`, JSON.stringify(projects));
       localStorage.setItem(`erp_users_${auth.companyKey}`, JSON.stringify(companyUsers));
+      localStorage.setItem('erp_global_tax_v3', globalTaxRate.toString());
+      localStorage.setItem('erp_global_comm_v3', globalCommRate.toString());
     }
-  }, [projects, companyUsers, auth]);
+  }, [projects, companyUsers, auth, globalTaxRate, globalCommRate]);
 
   // Funcionalidade de Backup
   const exportData = () => {
@@ -98,8 +110,10 @@ const App: React.FC = () => {
       projects,
       companyUsers,
       auth,
+      globalTaxRate,
+      globalCommRate,
       exportDate: new Date().toISOString(),
-      version: '3.0'
+      version: '3.1'
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -124,6 +138,8 @@ const App: React.FC = () => {
           setProjects(json.projects);
           if (json.companyUsers) setCompanyUsers(json.companyUsers);
           if (json.auth) setAuth(json.auth);
+          if (json.globalTaxRate) setGlobalTaxRate(json.globalTaxRate);
+          if (json.globalCommRate) setGlobalCommRate(json.globalCommRate);
           alert("Backup restaurado com sucesso!");
         } else {
           alert("Arquivo de backup inválido.");
@@ -133,7 +149,6 @@ const App: React.FC = () => {
       }
     };
     reader.readAsText(file);
-    // Limpar input
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -323,23 +338,21 @@ const App: React.FC = () => {
     const budget = projects.reduce((s, p) => s + p.budget, 0);
     const plannedRevenue = projects.reduce((s, p) => s + (p.plannedRevenues?.reduce((rs, r) => rs + r.amount, 0) || 0), 0);
     
-    let totalTaxes = 0;
-    let totalCommissions = 0;
-    projects.forEach(p => {
-      const pRevenue = p.revenues.reduce((rs, r) => rs + r.amount, 0);
-      const pTax = pRevenue * (p.taxPercentage / 100);
-      const pCommission = (pRevenue - pTax) * (p.commissionPercentage / 100);
-      totalTaxes += pTax;
-      totalCommissions += pCommission;
-    });
+    // Cálculos baseados nas taxas globais inseridas no Painel
+    const totalTaxes = revenue * (globalTaxRate / 100);
+    const totalCommissions = (revenue - totalTaxes) * (globalCommRate / 100);
+    
+    // Projeção baseada no budget total
+    const projectedTaxes = budget * (globalTaxRate / 100);
+    const projectedCommissions = (budget - projectedTaxes) * (globalCommRate / 100);
 
     return { 
       budget, revenue, expenses, plannedRevenue,
       taxes: totalTaxes, commissions: totalCommissions,
       currentProfit: revenue - (expenses + totalTaxes + totalCommissions),
-      plannedProfit: budget - (expenses + totalTaxes + totalCommissions)
+      plannedProfit: budget - (expenses + projectedTaxes + projectedCommissions)
     };
-  }, [projects]);
+  }, [projects, globalTaxRate, globalCommRate]);
 
   const allExpensesSorted = useMemo(() => {
     let list = projects.flatMap(p => p.expenses.map(e => ({ ...e, projectName: p.name, projectId: p.id })));
@@ -393,7 +406,6 @@ const App: React.FC = () => {
           </button>
         </nav>
         
-        {/* Novas Opções de Backup no Sidebar */}
         <div className="p-8 border-t border-slate-800 space-y-3">
            <div className="flex gap-2">
              <button onClick={exportData} className="flex-1 flex items-center justify-center gap-2 p-3 bg-slate-800 hover:bg-slate-700 rounded-xl text-[9px] font-black uppercase transition-all" title="Baixar todos os dados"><Download size={14}/> Exportar</button>
@@ -415,12 +427,49 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-6 md:p-12 bg-slate-50/50">
           {activeView === 'dashboard' && (
             <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+              {/* Barra de Configuração de Taxas Globais */}
+              <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+                 <div className="flex items-center gap-4">
+                    <Calculator size={24} className="text-blue-600" />
+                    <h3 className="text-xs font-black uppercase text-slate-800">Parâmetros de Cálculo</h3>
+                 </div>
+                 <div className="flex flex-wrap gap-4 items-center">
+                    <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100 group focus-within:border-blue-500 transition-all">
+                       <label className="text-[9px] font-black text-slate-400 uppercase flex items-center gap-1"><Percent size={12}/> Imposto:</label>
+                       <input 
+                         type="number" 
+                         value={globalTaxRate} 
+                         onChange={e => setGlobalTaxRate(Number(e.target.value))} 
+                         className="w-12 bg-transparent font-black text-blue-600 outline-none"
+                       />
+                       <span className="text-blue-600 font-black">%</span>
+                    </div>
+                    <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100 group focus-within:border-emerald-500 transition-all">
+                       <label className="text-[9px] font-black text-slate-400 uppercase flex items-center gap-1"><Coins size={12}/> Comissão:</label>
+                       <input 
+                         type="number" 
+                         value={globalCommRate} 
+                         onChange={e => setGlobalCommRate(Number(e.target.value))} 
+                         className="w-12 bg-transparent font-black text-emerald-600 outline-none"
+                       />
+                       <span className="text-emerald-600 font-black">%</span>
+                    </div>
+                 </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard title="Contratos" value={formatBRL(summary.budget)} icon={<DollarSign size={24}/>} trend={{value: 12, isPositive: true}} />
+                <StatCard title="Contratos" value={formatBRL(summary.budget)} icon={<DollarSign size={24}/>} />
                 <StatCard title="Receita Real" value={formatBRL(summary.revenue)} icon={<TrendingUp size={24}/>} colorClass="bg-white border-l-4 border-emerald-500" />
                 <StatCard title="Custos Totais" value={formatBRL(summary.expenses)} icon={<TrendingDown size={24}/>} colorClass="bg-white border-l-4 border-rose-500" />
                 <StatCard title="Lucro Líquido" value={formatBRL(summary.currentProfit)} icon={<Coins size={24}/>} colorClass="bg-slate-900 text-white" />
               </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <StatCard title="Lucro Previsto" value={formatBRL(summary.plannedProfit)} icon={<Target size={24}/>} colorClass="bg-white border-l-4 border-blue-500" />
+                <StatCard title="Imposto Pago" value={formatBRL(summary.taxes)} icon={<Landmark size={24}/>} colorClass="bg-white border-l-4 border-amber-500" />
+                <StatCard title="Comissão Paga" value={formatBRL(summary.commissions)} icon={<Users size={24}/>} colorClass="bg-white border-l-4 border-indigo-500" />
+              </div>
+
               <div className="bg-indigo-600/10 border border-indigo-200 p-6 rounded-[2rem] flex flex-col md:flex-row items-center justify-between gap-4">
                  <div className="flex items-center gap-4">
                    <div className="p-3 bg-indigo-600 rounded-2xl text-white"><ShieldCheck size={24}/></div>
